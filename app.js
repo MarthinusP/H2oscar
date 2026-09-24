@@ -67,7 +67,11 @@ function renderTank(tank, container) {
   const card = document.createElement("div");
   card.className = "card tank-card";
   card.innerHTML = `
-    <h2 class="tank-name">${tank.name}</h2>
+    <div class="tank-topline">
+      <span class="tank-name">${tank.name}</span>
+      <span class="tank-status-badge offline">Offline</span>
+      <span></span>
+    </div>
     <svg class="tank-shell" viewBox="0 0 160 230" aria-hidden="true">
       <defs>
         <clipPath id="clip-${tank.id}">
@@ -123,29 +127,26 @@ function renderTank(tank, container) {
       <path d="M32,30 Q30,120 32,205" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.06"/>
     </svg>
     <div class="tank-pct"><span class="pct-value">--</span><span class="pct-unit">%</span></div>
-    <div class="tank-meta">
-      <div>Distance: <span class="distance-value">--</span> mm</div>
-      <div class="tank-status stale">no data yet</div>
-    </div>
+    <div class="tank-meta"><span class="volume-value">--</span> L</div>
   `;
   container.appendChild(card);
 
   const waterEl = card.querySelector(".tank-water");
   const pctEl = card.querySelector(".pct-value");
-  const distEl = card.querySelector(".distance-value");
-  const statusEl = card.querySelector(".tank-status");
+  const volEl = card.querySelector(".volume-value");
+  const statusBadge = card.querySelector(".tank-status-badge");
 
   async function poll() {
     const data = await fetchTelemetry(tank.id);
     if (!data) {
-      statusEl.textContent = "no data yet";
-      statusEl.className = "tank-status stale";
+      statusBadge.textContent = "Offline";
+      statusBadge.className = "tank-status-badge offline";
       return false;
     }
 
     lastGoodFetchAt = Date.now();
     const age = Date.now() - data.server_ts;
-    const stale = age > STALE_THRESHOLD_MS;
+    const online = age <= STALE_THRESHOLD_MS;
 
     if (data.valid && data.level_pct >= 0) {
       const pct = Math.round(data.level_pct);
@@ -155,11 +156,11 @@ function renderTank(tank, container) {
       waterEl.style.height = "0%";
       pctEl.innerHTML = '<span class="na">n/a</span>';
     }
-    distEl.textContent = data.valid ? Math.round(data.distance_mm) : "--";
+    volEl.textContent = data.volume_l >= 0 ? Math.round(data.volume_l) : "n/a";
 
-    statusEl.textContent = stale ? `stale (${Math.round(age / 1000)}s old)` : "live";
-    statusEl.className = "tank-status " + (stale ? "stale" : "ok");
-    return !stale;
+    statusBadge.textContent = online ? "Online" : "Offline";
+    statusBadge.className = "tank-status-badge " + (online ? "online" : "offline");
+    return online;
   }
 
   return { poll };
