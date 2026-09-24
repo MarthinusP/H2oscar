@@ -1,7 +1,7 @@
 // API_BASE lives in site-config.js, shared with reset.html.
 const TANKS = [{ id: "tank1", name: "Tank 1" }];
-const POLL_INTERVAL_MS = 2000;
-const STALE_THRESHOLD_MS = 6000; // ~3x the firmware's push interval
+const POLL_INTERVAL_MS = 5000;
+const STALE_THRESHOLD_MS = 15000; // ~3x the firmware's push interval
 
 let lastGoodFetchAt = 0;
 let unlockedPassword = null; // kept in memory only, cleared on page reload
