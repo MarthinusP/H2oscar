@@ -7,3 +7,8 @@ compatibility_date = "2026-09-24"
 [[kv_namespaces]]
 binding = "TELEMETRY_KV"
 id = "37e4df1ef2dc4f608090bb53a77f1660"
+
+# Public info, not a secret -- your GitHub Pages URL, used to build the link
+# inside the password-reset email. No trailing slash.
+[vars]
+SITE_URL = "https://marthinusp.github.io/H2oscar"

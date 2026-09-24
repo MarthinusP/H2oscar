@@ -1,5 +1,6 @@
 import { jsonResponse, withCors, corsHeaders } from "./cors.js";
-import { timingSafeEqual, getDeviceSecret, checkBearerAuth } from "./auth.js";
+import { timingSafeEqual, getDeviceSecret, checkBearerAuth, getDashboardPassword } from "./auth.js";
+import { sendResetEmail } from "./email.js";
 
 const TANK_ID_RE = /^[a-z0-9_-]+$/;
 const ROUTE_RE = /^\/api\/tanks\/([a-z0-9_-]+)\/(telemetry|config)$/;
@@ -9,6 +10,11 @@ const CONFIG_MAX_MM = 4500;
 const RATE_LIMIT_MAX_ATTEMPTS = 10;
 const RATE_LIMIT_WINDOW_S = 300;
 
+const RESET_TOKEN_TTL_S = 900; // 15 minutes
+const RESET_MIN_PASSWORD_LEN = 8;
+const RESET_RATE_LIMIT_MAX_ATTEMPTS = 5;
+const RESET_RATE_LIMIT_WINDOW_S = 3600;
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
@@ -16,16 +22,24 @@ export default {
     }
 
     const url = new URL(request.url);
-    const match = url.pathname.match(ROUTE_RE);
-    if (!match) {
-      return jsonResponse({ error: "not_found" }, 404);
-    }
-    const [, tankId, resource] = match;
-    if (!TANK_ID_RE.test(tankId)) {
-      return jsonResponse({ error: "invalid_tank_id" }, 400);
-    }
 
     try {
+      if (url.pathname === "/api/reset-request" && request.method === "POST") {
+        return await handleResetRequest(request, env);
+      }
+      if (url.pathname === "/api/reset-confirm" && request.method === "POST") {
+        return await handleResetConfirm(request, env);
+      }
+
+      const match = url.pathname.match(ROUTE_RE);
+      if (!match) {
+        return jsonResponse({ error: "not_found" }, 404);
+      }
+      const [, tankId, resource] = match;
+      if (!TANK_ID_RE.test(tankId)) {
+        return jsonResponse({ error: "invalid_tank_id" }, 400);
+      }
+
       if (resource === "telemetry") {
         if (request.method === "POST") return await handleTelemetryPost(request, env, tankId);
         if (request.method === "GET") return await handleTelemetryGet(env, tankId);
@@ -87,19 +101,14 @@ async function handleConfigPost(request, env, tankId) {
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
   const rateLimitKey = `ratelimit:config:${ip}`;
 
-  const rateLimitRaw = await env.TELEMETRY_KV.get(rateLimitKey);
-  const rateLimit = rateLimitRaw ? JSON.parse(rateLimitRaw) : { count: 0 };
-  if (rateLimit.count >= RATE_LIMIT_MAX_ATTEMPTS) {
+  if (await isRateLimited(env, rateLimitKey, RATE_LIMIT_MAX_ATTEMPTS)) {
     return jsonResponse({ error: "too_many_attempts" }, 429);
   }
 
   const password = request.headers.get("X-Dashboard-Password") || "";
-  if (!timingSafeEqual(password, env.DASHBOARD_PASSWORD || "")) {
-    await env.TELEMETRY_KV.put(
-      rateLimitKey,
-      JSON.stringify({ count: rateLimit.count + 1 }),
-      { expirationTtl: RATE_LIMIT_WINDOW_S }
-    );
+  const expectedPassword = await getDashboardPassword(env);
+  if (!timingSafeEqual(password, expectedPassword)) {
+    await recordRateLimitFailure(env, rateLimitKey, RATE_LIMIT_WINDOW_S);
     return jsonResponse({ error: "unauthorized" }, 401);
   }
   await env.TELEMETRY_KV.delete(rateLimitKey);
@@ -127,5 +136,84 @@ async function handleConfigPost(request, env, tankId) {
 
   const record = { sensor_outlet_mm: outletMm, sensor_overflow_mm: overflowMm, updated_ts: Date.now() };
   await env.TELEMETRY_KV.put(`tank:${tankId}:config`, JSON.stringify(record));
+  return jsonResponse({ ok: true });
+}
+
+async function isRateLimited(env, key, maxAttempts) {
+  const raw = await env.TELEMETRY_KV.get(key);
+  const count = raw ? JSON.parse(raw).count : 0;
+  return count >= maxAttempts;
+}
+
+async function recordRateLimitFailure(env, key, windowS) {
+  const raw = await env.TELEMETRY_KV.get(key);
+  const count = raw ? JSON.parse(raw).count : 0;
+  await env.TELEMETRY_KV.put(key, JSON.stringify({ count: count + 1 }), { expirationTtl: windowS });
+}
+
+// Always responds the same way regardless of whether the email matched, so
+// the response itself never reveals which email address is configured.
+async function handleResetRequest(request, env) {
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const rateLimitKey = `ratelimit:reset:${ip}`;
+
+  if (await isRateLimited(env, rateLimitKey, RESET_RATE_LIMIT_MAX_ATTEMPTS)) {
+    return jsonResponse({ error: "too_many_attempts" }, 429);
+  }
+  // Counts every attempt, not just failures -- this caps how many emails a
+  // single IP can trigger, separate from guarding the password itself.
+  await recordRateLimitFailure(env, rateLimitKey, RESET_RATE_LIMIT_WINDOW_S);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "invalid_json" }, 400);
+  }
+
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  const expectedEmail = (env.RESET_EMAIL || "").trim().toLowerCase();
+
+  if (email && expectedEmail && timingSafeEqual(email, expectedEmail)) {
+    const token = crypto.randomUUID().replace(/-/g, "");
+    await env.TELEMETRY_KV.put(
+      `reset:${token}`,
+      JSON.stringify({ createdAt: Date.now() }),
+      { expirationTtl: RESET_TOKEN_TTL_S }
+    );
+    const resetUrl = `${env.SITE_URL}/reset.html?token=${token}`;
+    try {
+      await sendResetEmail(env, expectedEmail, resetUrl);
+    } catch {
+      // Swallow errors -- the response must look identical either way.
+    }
+  }
+
+  return jsonResponse({ ok: true });
+}
+
+async function handleResetConfirm(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "invalid_json" }, 400);
+  }
+
+  const token = typeof body.token === "string" ? body.token : "";
+  const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
+
+  if (!token || newPassword.length < RESET_MIN_PASSWORD_LEN) {
+    return jsonResponse({ error: "invalid_request" }, 400);
+  }
+
+  const tokenKey = `reset:${token}`;
+  const tokenRecord = await env.TELEMETRY_KV.get(tokenKey);
+  if (!tokenRecord) {
+    return jsonResponse({ error: "invalid_or_expired_token" }, 400);
+  }
+
+  await env.TELEMETRY_KV.delete(tokenKey);
+  await env.TELEMETRY_KV.put("auth:dashboard_password", newPassword);
   return jsonResponse({ ok: true });
 }

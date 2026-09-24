@@ -25,3 +25,11 @@ export function checkBearerAuth(request, expectedSecret) {
   if (!match) return false;
   return timingSafeEqual(match[1], expectedSecret);
 }
+
+// The dashboard password lives in KV (mutable, so a reset can change it) with
+// the DASHBOARD_PASSWORD secret only used as the seed value the first time
+// -- before any reset has ever happened.
+export async function getDashboardPassword(env) {
+  const stored = await env.TELEMETRY_KV.get("auth:dashboard_password");
+  return stored || env.DASHBOARD_PASSWORD || "";
+}

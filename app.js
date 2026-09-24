@@ -1,6 +1,4 @@
-// Fill in with the URL printed by `wrangler deploy` (see the repo README).
-const API_BASE = "https://h2oscar-api.H2oscarsub.workers.dev";
-
+// API_BASE now lives in site-config.js, shared with reset.html.
 const TANKS = [{ id: "tank1", name: "Tank 1" }];
 const POLL_INTERVAL_MS = 2000;
 const STALE_THRESHOLD_MS = 6000; // ~3x the firmware's push interval
@@ -40,6 +38,15 @@ async function saveConfig(tankId, outletMm, overflowMm, password) {
   let body = null;
   try { body = await res.json(); } catch { /* ignore */ }
   return { ok: res.ok, status: res.status, body };
+}
+
+async function requestPasswordReset(email) {
+  const res = await fetch(`${API_BASE}/api/reset-request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  return res.ok;
 }
 
 // Builds one tank card's DOM and returns a poll() function that refreshes it.
@@ -160,6 +167,35 @@ function setupCalibrationForm() {
   });
 }
 
+function setupForgotPasswordForm() {
+  const link = document.getElementById("forgot-link");
+  const form = document.getElementById("forgot-form");
+  const emailInput = document.getElementById("forgot-email");
+  const statusEl = document.getElementById("forgot-status");
+  const btn = document.getElementById("forgot-btn");
+
+  link.addEventListener("click", () => {
+    form.hidden = !form.hidden;
+    if (!form.hidden) emailInput.focus();
+  });
+
+  form.addEventListener("submit", async (evt) => {
+    evt.preventDefault();
+    btn.disabled = true;
+    statusEl.textContent = "";
+    statusEl.className = "status-msg";
+
+    await requestPasswordReset(emailInput.value.trim());
+
+    // Same message either way -- the response never reveals whether the
+    // email matched what's configured on the Worker.
+    statusEl.textContent = "If that email is the one on file, a reset link is on its way.";
+    statusEl.className = "status-msg ok";
+    btn.disabled = false;
+    emailInput.value = "";
+  });
+}
+
 function main() {
   const container = document.getElementById("tanks");
   const tanks = TANKS.map((tank) => renderTank(tank, container));
@@ -174,6 +210,7 @@ function main() {
   setInterval(pollAll, POLL_INTERVAL_MS);
 
   setupCalibrationForm();
+  setupForgotPasswordForm();
 }
 
 main();

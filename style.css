@@ -201,6 +201,33 @@ button#save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .status-msg.ok { color: var(--good); }
 .status-msg.error { color: var(--bad); }
 
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 10px 0 0;
+  text-decoration: underline;
+}
+.link-btn:hover { color: var(--accent-deep); }
+
+#forgot-form { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+button#forgot-btn, button#reset-btn {
+  background: var(--accent);
+  color: #06212c;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+button#forgot-btn:hover, button#reset-btn:hover { background: var(--accent-deep); color: var(--text); }
+button#forgot-btn:disabled, button#reset-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
 .page-footer {
   max-width: 960px;
   margin: 24px auto 0;

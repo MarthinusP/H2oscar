@@ -50,7 +50,8 @@ Note the URL it serves from. If it's not `https://marthinusp.github.io`, update
 
 ### 3. Point the site at your Worker
 
-Edit `app.js`, set `API_BASE` to the `*.workers.dev` URL from step 1, commit and push.
+Edit `site-config.js`, set `API_BASE` to the `*.workers.dev` URL from step 1, commit and push.
+(Both `index.html` and `reset.html` load this one file, so it only needs setting once.)
 
 ### 4. Point the firmware at your Worker
 
@@ -70,6 +71,36 @@ and the site should show Tank 1's live level within a few seconds. Changing the
 calibration on the site should show up in the ESP32's serial log (`[CLOUD]
 Config updated from cloud: ...`) within about a minute, and survive a
 power-cycle.
+
+## Password reset
+
+If you forget the dashboard password, the "Forgot password?" link on the site
+emails you a one-time link to set a new one -- but only if the email you type
+in matches `RESET_EMAIL`, which you configure once yourself (a Worker can't
+read your Cloudflare account's email, so this has to be set explicitly):
+
+```
+cd worker
+npx wrangler secret put RESET_EMAIL        # the only email address resets will be sent to
+npx wrangler secret put RESEND_API_KEY     # from resend.com -- free tier, no domain verification needed
+npx wrangler deploy
+```
+
+Also set `SITE_URL` in `worker/wrangler.toml`'s `[vars]` block to your real
+Pages URL (used to build the link inside the email) if it differs from the
+default, then redeploy.
+
+Sending uses Resend's shared `onboarding@resend.dev` address, which only
+delivers to the email on your own Resend account -- which is `RESET_EMAIL`
+here anyway, so no domain setup is needed. A wrong email at the reset form
+gets exactly the same on-screen response as a correct one; only a match
+actually triggers an email, so there's no way to tell from the outside
+whether an address matched.
+
+Once you request a reset, the emailed link goes to `reset.html`, is valid for
+15 minutes, and works once. Setting a new password there replaces the one in
+KV -- the original `DASHBOARD_PASSWORD` secret is now only used as a fallback
+before the first-ever reset.
 
 ## Adding another tank later
 
