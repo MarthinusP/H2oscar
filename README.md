@@ -36,10 +36,17 @@ npx wrangler deploy
 
 Note the `https://h2oscar-api.<subdomain>.workers.dev` URL it prints.
 
-Seed the config key so `GET /config` doesn't 404 before the first save from the site:
+Seed the config key so `GET /config` doesn't 404 before the first save from the site
+(a file sidesteps shell-quoting issues an inline JSON string can run into on Windows):
 
 ```
-npx wrangler kv key put --binding=TELEMETRY_KV "tank:tank1:config" "{\"sensor_outlet_mm\":2000,\"sensor_overflow_mm\":250,\"updated_ts\":0}"
+npx wrangler kv key put --binding=TELEMETRY_KV "tank:tank1:config" --path tank1-config.json
+```
+
+where `tank1-config.json` (in the `worker` folder) contains:
+
+```json
+{"sensor_outlet_mm":2000,"sensor_overflow_mm":250,"tank_capacity_l":5000,"updated_ts":0}
 ```
 
 ### 2. Enable GitHub Pages
@@ -71,6 +78,25 @@ and the site should show Tank 1's live level within a few seconds. Changing the
 calibration on the site should show up in the ESP32's serial log (`[CLOUD]
 Config updated from cloud: ...`) within about a minute, and survive a
 power-cycle.
+
+## Settings on the site
+
+Calibration and the password live behind the gear icon in the top-right
+corner, not on the page itself. Clicking it asks for the dashboard password
+(checked via `POST /api/verify-password`, no calibration payload needed);
+once verified, the password is kept in memory for the rest of that page
+load (not persisted anywhere) and the Settings panel opens with:
+
+- **Sensor Outlet / Sensor Overflow / Tank Capacity** -- saved together via
+  the existing `POST /api/tanks/:id/config`, now also validating
+  `tank_capacity_l` (integer, 1 to 1,000,000).
+- **Change password** -- a new `POST /api/change-password` endpoint, gated
+  by the *current* password (sent the same way as a config save) rather
+  than an emailed token. Successfully changing it updates the in-memory
+  password used for the rest of the session too.
+
+Both endpoints share the same brute-force rate limit as config saves (10
+attempts per 5 minutes per IP) since they all gate on the same password.
 
 ## Password reset
 

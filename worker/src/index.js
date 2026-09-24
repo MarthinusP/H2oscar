@@ -7,6 +7,9 @@ const ROUTE_RE = /^\/api\/tanks\/([a-z0-9_-]+)\/(telemetry|config)$/;
 
 const CONFIG_MIN_MM = 20;
 const CONFIG_MAX_MM = 4500;
+const CAPACITY_MIN_L = 1;
+const CAPACITY_MAX_L = 1000000;
+const PASSWORD_MIN_LEN = 8;
 const RATE_LIMIT_MAX_ATTEMPTS = 10;
 const RATE_LIMIT_WINDOW_S = 300;
 
@@ -29,6 +32,12 @@ export default {
       }
       if (url.pathname === "/api/reset-confirm" && request.method === "POST") {
         return await handleResetConfirm(request, env);
+      }
+      if (url.pathname === "/api/verify-password" && request.method === "POST") {
+        return await handleVerifyPassword(request, env);
+      }
+      if (url.pathname === "/api/change-password" && request.method === "POST") {
+        return await handleChangePassword(request, env);
       }
 
       const match = url.pathname.match(ROUTE_RE);
@@ -99,19 +108,9 @@ async function handleConfigGet(env, tankId) {
 
 async function handleConfigPost(request, env, tankId) {
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-  const rateLimitKey = `ratelimit:config:${ip}`;
-
-  if (await isRateLimited(env, rateLimitKey, RATE_LIMIT_MAX_ATTEMPTS)) {
-    return jsonResponse({ error: "too_many_attempts" }, 429);
-  }
-
   const password = request.headers.get("X-Dashboard-Password") || "";
-  const expectedPassword = await getDashboardPassword(env);
-  if (!timingSafeEqual(password, expectedPassword)) {
-    await recordRateLimitFailure(env, rateLimitKey, RATE_LIMIT_WINDOW_S);
-    return jsonResponse({ error: "unauthorized" }, 401);
-  }
-  await env.TELEMETRY_KV.delete(rateLimitKey);
+  const auth = await checkDashboardAuth(env, ip, password);
+  if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status);
 
   let body;
   try {
@@ -122,20 +121,84 @@ async function handleConfigPost(request, env, tankId) {
 
   const outletMm = body.sensor_outlet_mm;
   const overflowMm = body.sensor_overflow_mm;
+  const capacityL = body.tank_capacity_l;
   if (
     !Number.isInteger(outletMm) ||
     !Number.isInteger(overflowMm) ||
+    !Number.isInteger(capacityL) ||
     outletMm < CONFIG_MIN_MM ||
     outletMm > CONFIG_MAX_MM ||
     overflowMm < CONFIG_MIN_MM ||
     overflowMm > CONFIG_MAX_MM ||
-    outletMm <= overflowMm
+    outletMm <= overflowMm ||
+    capacityL < CAPACITY_MIN_L ||
+    capacityL > CAPACITY_MAX_L
   ) {
     return jsonResponse({ error: "invalid_config" }, 400);
   }
 
-  const record = { sensor_outlet_mm: outletMm, sensor_overflow_mm: overflowMm, updated_ts: Date.now() };
+  const record = {
+    sensor_outlet_mm: outletMm,
+    sensor_overflow_mm: overflowMm,
+    tank_capacity_l: capacityL,
+    updated_ts: Date.now(),
+  };
   await env.TELEMETRY_KV.put(`tank:${tankId}:config`, JSON.stringify(record));
+  return jsonResponse({ ok: true });
+}
+
+// Shared by every endpoint that checks the dashboard password, so brute-force
+// attempts against any of them count against the same per-IP limit.
+async function checkDashboardAuth(env, ip, password) {
+  const rateLimitKey = `ratelimit:auth:${ip}`;
+
+  if (await isRateLimited(env, rateLimitKey, RATE_LIMIT_MAX_ATTEMPTS)) {
+    return { ok: false, status: 429, error: "too_many_attempts" };
+  }
+
+  const expectedPassword = await getDashboardPassword(env);
+  if (!timingSafeEqual(password, expectedPassword)) {
+    await recordRateLimitFailure(env, rateLimitKey, RATE_LIMIT_WINDOW_S);
+    return { ok: false, status: 401, error: "unauthorized" };
+  }
+
+  await env.TELEMETRY_KV.delete(rateLimitKey);
+  return { ok: true };
+}
+
+async function handleVerifyPassword(request, env) {
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "invalid_json" }, 400);
+  }
+  const password = typeof body.password === "string" ? body.password : "";
+  const auth = await checkDashboardAuth(env, ip, password);
+  if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status);
+  return jsonResponse({ ok: true });
+}
+
+async function handleChangePassword(request, env) {
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const currentPassword = request.headers.get("X-Dashboard-Password") || "";
+  const auth = await checkDashboardAuth(env, ip, currentPassword);
+  if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "invalid_json" }, 400);
+  }
+
+  const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
+  if (newPassword.length < PASSWORD_MIN_LEN) {
+    return jsonResponse({ error: "invalid_request" }, 400);
+  }
+
+  await env.TELEMETRY_KV.put("auth:dashboard_password", newPassword);
   return jsonResponse({ ok: true });
 }
 

@@ -10,60 +10,90 @@
 <body>
   <header class="page-header">
     <h1><span class="drop">&#128167;</span> H2Oscar</h1>
-    <div class="sub"><span id="dot" class="status-dot"></span><span id="connLabel">Connecting&hellip;</span></div>
+    <button type="button" id="settings-gear" class="gear-btn" aria-label="Settings" title="Settings">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+        <circle cx="12" cy="12" r="3.2"/>
+        <path d="M12 2.5v2.4M12 19.1v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M2.5 12h2.4M19.1 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7"/>
+      </svg>
+    </button>
   </header>
 
   <main>
     <section id="tanks" class="tanks-grid" aria-label="Tank levels"></section>
-
-    <section class="grid">
-      <div class="card" id="calibration-card">
-        <h2>Calibration &mdash; Tank 1</h2>
-        <p class="muted">
-          Sensor Outlet = the distance from the sensor down to the outlet pipe (0% full).<br>
-          Sensor Overflow = the distance from the sensor down to the overflow pipe (100% full).
-        </p>
-        <form id="cal-form">
-          <label class="field">
-            <span>Sensor Outlet (mm)</span>
-            <input type="number" id="outlet-mm" min="20" max="4500" required>
-          </label>
-          <label class="field">
-            <span>Sensor Overflow (mm)</span>
-            <input type="number" id="overflow-mm" min="20" max="4500" required>
-          </label>
-          <label class="field">
-            <span>Dashboard password</span>
-            <input type="password" id="dash-password" autocomplete="current-password">
-          </label>
-          <label class="remember">
-            <input type="checkbox" id="remember-password">
-            Remember password on this device
-          </label>
-          <button type="submit" id="save-btn">Save calibration</button>
-          <div id="cal-status" class="status-msg" role="status"></div>
-        </form>
-
-        <button type="button" id="forgot-link" class="link-btn">Forgot password?</button>
-
-        <form id="forgot-form" hidden>
-          <label class="field">
-            <span>Your email</span>
-            <input type="email" id="forgot-email" autocomplete="email" required>
-          </label>
-          <button type="submit" id="forgot-btn">Send reset link</button>
-          <div id="forgot-status" class="status-msg" role="status"></div>
-        </form>
-      </div>
-
-      <div class="card" id="more-settings-card">
-        <h2>More settings</h2>
-        <p class="muted">More controls are coming soon.</p>
-      </div>
-    </section>
   </main>
 
   <footer class="page-footer">Last update: <span id="lastUpdate">never</span></footer>
+
+  <!-- Password gate: shown first when opening Settings this session -->
+  <div id="gate-backdrop" class="modal-backdrop" hidden>
+    <div class="card modal">
+      <button type="button" class="modal-close" data-close="gate-backdrop" aria-label="Close">&times;</button>
+      <h2>Enter password</h2>
+      <form id="gate-form">
+        <label class="field">
+          <span>Dashboard password</span>
+          <input type="password" id="gate-password" autocomplete="current-password" required>
+        </label>
+        <button type="submit" id="gate-btn">Unlock</button>
+        <div id="gate-status" class="status-msg" role="status"></div>
+      </form>
+
+      <button type="button" id="forgot-link" class="link-btn">Forgot password?</button>
+
+      <form id="forgot-form" hidden>
+        <label class="field">
+          <span>Your email</span>
+          <input type="email" id="forgot-email" autocomplete="email" required>
+        </label>
+        <button type="submit" id="forgot-btn">Send reset link</button>
+        <div id="forgot-status" class="status-msg" role="status"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Settings panel: shown once the password above is verified -->
+  <div id="settings-backdrop" class="modal-backdrop" hidden>
+    <div class="card modal">
+      <button type="button" class="modal-close" data-close="settings-backdrop" aria-label="Close">&times;</button>
+      <h2>Settings &mdash; Tank 1</h2>
+      <p class="muted">
+        Sensor Outlet = distance from the sensor down to the outlet pipe (0% full).<br>
+        Sensor Overflow = distance from the sensor down to the overflow pipe (100% full).
+      </p>
+      <form id="cal-form">
+        <label class="field">
+          <span>Sensor Outlet (mm)</span>
+          <input type="number" id="outlet-mm" min="20" max="4500" required>
+        </label>
+        <label class="field">
+          <span>Sensor Overflow (mm)</span>
+          <input type="number" id="overflow-mm" min="20" max="4500" required>
+        </label>
+        <label class="field">
+          <span>Tank Capacity (litres)</span>
+          <input type="number" id="capacity-l" min="1" max="1000000" required>
+        </label>
+        <button type="submit" id="save-btn">Save settings</button>
+        <div id="cal-status" class="status-msg" role="status"></div>
+      </form>
+
+      <form id="password-form">
+        <h3>Change password</h3>
+        <label class="field">
+          <span>New password</span>
+          <input type="password" id="new-password" autocomplete="new-password" minlength="8" required>
+        </label>
+        <label class="field">
+          <span>Confirm new password</span>
+          <input type="password" id="confirm-password" autocomplete="new-password" minlength="8" required>
+        </label>
+        <button type="submit" id="password-btn">Update password</button>
+        <div id="password-status" class="status-msg" role="status"></div>
+      </form>
+
+      <p class="muted more-settings-note">More controls are coming soon.</p>
+    </div>
+  </div>
 
   <script src="site-config.js"></script>
   <script src="app.js" defer></script>
