@@ -1,9 +1,9 @@
 // Fill in with the URL printed by `wrangler deploy` (see the repo README).
-const API_BASE = "https://h2oscar-api.<subdomain>.workers.dev";
+const API_BASE = "https://h2oscar-api.h2oscarsub.workers.dev";
 
 const TANKS = [{ id: "tank1", name: "Tank 1" }];
-const POLL_INTERVAL_MS = 5000;
-const STALE_THRESHOLD_MS = 20000; // ~3x the firmware's push interval
+const POLL_INTERVAL_MS = 2000;
+const STALE_THRESHOLD_MS = 6000; // ~3x the firmware's push interval
 
 const PASSWORD_STORAGE_KEY = "h2oscar_dash_password";
 
