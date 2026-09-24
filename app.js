@@ -1,5 +1,5 @@
 // Fill in with the URL printed by `wrangler deploy` (see the repo README).
-const API_BASE = "https://h2oscar-api.<subdomain>.workers.dev";
+const API_BASE = "https://h2oscar-api.H2oscarsub.workers.dev";
 
 const TANKS = [{ id: "tank1", name: "Tank 1" }];
 const POLL_INTERVAL_MS = 5000;
