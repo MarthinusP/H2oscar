@@ -19,7 +19,7 @@
   </header>
 
   <main>
-    <section id="tanks" class="tanks-grid" aria-label="Tank levels"></section>
+    <section id="tanks" class="tanks-row" aria-label="Tank levels"></section>
   </main>
 
   <footer class="page-footer">Last update: <span id="lastUpdate">never</span></footer>
@@ -55,27 +55,12 @@
   <div id="settings-backdrop" class="modal-backdrop" hidden>
     <div class="card modal">
       <button type="button" class="modal-close" data-close="settings-backdrop" aria-label="Close">&times;</button>
-      <h2>Settings &mdash; Tank 1</h2>
+      <h2>Settings</h2>
       <p class="muted">
         Sensor Outlet = distance from the sensor down to the outlet pipe (0% full).<br>
         Sensor Overflow = distance from the sensor down to the overflow pipe (100% full).
       </p>
-      <form id="cal-form">
-        <label class="field">
-          <span>Sensor Outlet (mm)</span>
-          <input type="number" id="outlet-mm" min="20" max="4500" required>
-        </label>
-        <label class="field">
-          <span>Sensor Overflow (mm)</span>
-          <input type="number" id="overflow-mm" min="20" max="4500" required>
-        </label>
-        <label class="field">
-          <span>Tank Capacity (litres)</span>
-          <input type="number" id="capacity-l" min="1" max="1000000" required>
-        </label>
-        <button type="submit" id="save-btn">Save settings</button>
-        <div id="cal-status" class="status-msg" role="status"></div>
-      </form>
+      <div id="tank-settings-list"></div>
 
       <form id="password-form">
         <h3>Change password</h3>

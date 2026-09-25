@@ -128,9 +128,35 @@ Once you request a reset, the emailed link goes to `reset.html`, is valid for
 KV -- the original `DASHBOARD_PASSWORD` secret is now only used as a fallback
 before the first-ever reset.
 
-## Adding another tank later
+## Tank 2
 
-Give the new ESP32 its own `TANK_ID` (e.g. `tank2`) and its own
-`wrangler secret put TANK2_DEVICE_SECRET`; add it to the `TANKS` array at the
-top of `app.js`. No other changes needed -- the Worker and the site are both
-already keyed by tank id.
+A second ESP32 ("ESP2"), physically identical to ESP1 (same A02YYUW wiring,
+same button/LED pins), reports as `tank2`. Its firmware is a full duplicate
+of `esp32_water_monitor` at `../esp32_water_monitor_tank2`, differing only
+in `config.h` (`AP_SSID`/`AP_PASSWORD` = `"H2-Oscar2"`/`"H2oscar2@123!"`,
+`TANK_ID = "tank2"`, its own `TANK_DEVICE_SECRET`) -- its own setup network,
+WiFi provisioning flow, and default-button behaviour work exactly like ESP1.
+
+To bring it online:
+
+```
+cd worker
+npx wrangler secret put TANK2_DEVICE_SECRET   # must match esp32_water_monitor_tank2/src/config.h
+npx wrangler deploy
+npx wrangler kv key put --binding=TELEMETRY_KV "tank:tank2:config" --path tank2-config.json
+```
+
+Tank 2 shows up automatically on the site (it's in the `TANKS` array in
+`app.js`) with its own Settings section, to the right of Tank 1. It also
+gets a mirrored outlet stub on its *left* side, connected to Tank 1's right
+outlet by a pipe with a solenoid valve graphic in the middle -- for now that
+valve just alternates green/red every 10 seconds as a placeholder for a
+real transfer-control feature later.
+
+## Adding a third tank later
+
+Same pattern as Tank 2: duplicate the firmware project, give it its own
+`AP_SSID`/`TANK_ID`/`TANK_DEVICE_SECRET`, set a matching `wrangler secret
+put TANK3_DEVICE_SECRET`, seed `tank:tank3:config`, and add it to the
+`TANKS` array in `app.js`. Give it `leftOutlet: true` there if you want it
+piped to Tank 2's right side the same way Tank 2 is piped to Tank 1.

@@ -2,3 +2,4 @@ node_modules/
 .wrangler/
 .dev.vars
 tank1-config.json
+tank2-config.json

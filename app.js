@@ -1,7 +1,13 @@
 // API_BASE lives in site-config.js, shared with reset.html.
-const TANKS = [{ id: "tank1", name: "Tank 1" }];
+// leftOutlet: true draws a mirrored outlet stub on that tank's left side, so
+// a connecting pipe can run from the previous tank's right outlet into it.
+const TANKS = [
+  { id: "tank1", name: "Tank 1" },
+  { id: "tank2", name: "Tank 2", leftOutlet: true },
+];
 const POLL_INTERVAL_MS = 5000;
 const STALE_THRESHOLD_MS = 15000; // ~3x the firmware's push interval
+const VALVE_BLINK_MS = 10000;
 
 let lastGoodFetchAt = 0;
 let unlockedPassword = null; // kept in memory only, cleared on page reload
@@ -53,6 +59,15 @@ async function changePassword(currentPassword, newPassword) {
   return { ok: res.ok, status: res.status };
 }
 
+// Same thresholds as the firmware's own signalQuality() in wifi_provision.h.
+function wifiQualityLabel(rssi) {
+  if (typeof rssi !== "number") return "--";
+  if (rssi >= -60) return "Excellent";
+  if (rssi >= -70) return "Good";
+  if (rssi >= -80) return "Fair";
+  return "Weak";
+}
+
 async function requestPasswordReset(email) {
   const res = await fetch(`${API_BASE}/api/reset-request`, {
     method: "POST",
@@ -72,6 +87,7 @@ function renderTank(tank, container) {
       <span class="tank-status-badge offline">Offline</span>
       <span></span>
     </div>
+    <div class="wifi-line"><span class="wifi-value">--</span></div>
     <svg class="tank-shell" viewBox="0 0 160 230" aria-hidden="true">
       <defs>
         <clipPath id="clip-${tank.id}">
@@ -115,9 +131,15 @@ function renderTank(tank, container) {
       <!-- overflow pipe (upper) -->
       <rect x="138" y="44" width="16" height="8" rx="2" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
 
-      <!-- outlet pipe + valve (lower) -->
+      <!-- outlet pipe + valve (lower, right) -->
       <rect x="138" y="196" width="14" height="8" rx="2" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
-      <circle cx="158" cy="200" r="6" fill="#4d7488" stroke="#0a1620" stroke-width="1.5"/>
+      <circle class="outlet-anchor outlet-anchor-right" cx="158" cy="200" r="6" fill="#4d7488" stroke="#0a1620" stroke-width="1.5"/>
+
+      ${tank.leftOutlet ? `
+      <!-- outlet pipe + valve (lower, left -- mirrors the right one, feeds from the previous tank) -->
+      <rect x="8" y="196" width="14" height="8" rx="2" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
+      <circle class="outlet-anchor outlet-anchor-left" cx="2" cy="200" r="6" fill="#4d7488" stroke="#0a1620" stroke-width="1.5"/>
+      ` : ""}
 
       <!-- body outline on top so ribbing/pipes stay inside -->
       <path d="M20,26 Q20,14 80,14 Q140,14 140,26 L140,208 Q140,222 80,222 Q20,222 20,208 Z"
@@ -135,12 +157,14 @@ function renderTank(tank, container) {
   const pctEl = card.querySelector(".pct-value");
   const volEl = card.querySelector(".volume-value");
   const statusBadge = card.querySelector(".tank-status-badge");
+  const wifiEl = card.querySelector(".wifi-value");
 
   async function poll() {
     const data = await fetchTelemetry(tank.id);
     if (!data) {
       statusBadge.textContent = "Offline";
       statusBadge.className = "tank-status-badge offline";
+      wifiEl.textContent = "--";
       return false;
     }
 
@@ -160,10 +184,99 @@ function renderTank(tank, container) {
 
     statusBadge.textContent = online ? "Online" : "Offline";
     statusBadge.className = "tank-status-badge " + (online ? "online" : "offline");
+
+    wifiEl.textContent = online && typeof data.rssi === "number"
+      ? `${data.rssi} dBm · ${wifiQualityLabel(data.rssi)}`
+      : "--";
+
     return online;
   }
 
-  return { poll };
+  return { poll, cardEl: card };
+}
+
+// Draws the inter-tank pipe(s) + solenoid valve(s) as one absolutely
+// positioned SVG overlaid on top of the tank cards, so the pipe can start
+// and end exactly on each tank's outlet anchor regardless of card layout.
+// Geometry is recomputed on layoutConnectors() (initial render + resize);
+// only the valve's colour changes on the blink interval.
+function buildConnectors(container, tankRenders) {
+  const links = [];
+  for (let i = 0; i < tankRenders.length - 1; i++) {
+    const from = tankRenders[i];
+    const to = tankRenders[i + 1];
+    if (!to.tank.leftOutlet) continue;
+    links.push({ from, to });
+  }
+  if (!links.length) return null;
+
+  const overlay = document.createElement("div");
+  overlay.className = "pipe-overlay-wrap";
+  overlay.innerHTML = `
+    <svg class="pipe-overlay" aria-hidden="true">
+      ${links.map((_, i) => `
+        <g class="connector" data-index="${i}">
+          <rect class="connector-pipe" height="8" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
+          <g class="connector-valve">
+            <rect class="valve-coil" x="-6" y="-24" width="12" height="18" rx="2" fill="#22394a" stroke="#0a1620" stroke-width="1.5"/>
+            <line class="valve-lead" x1="-4" y1="-24" x2="-4" y2="-30" stroke="#0a1620" stroke-width="1.5"/>
+            <line class="valve-lead" x1="4" y1="-24" x2="4" y2="-30" stroke="#0a1620" stroke-width="1.5"/>
+            <rect class="valve-body" x="-8" y="-6" width="16" height="12" rx="2" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
+            <circle class="valve-light" cx="0" cy="-15" r="4" fill="var(--good)"/>
+          </g>
+        </g>
+      `).join("")}
+    </svg>
+  `;
+  container.appendChild(overlay);
+
+  return links.map((link, i) => ({
+    ...link,
+    pipeEl: overlay.querySelector(`.connector[data-index="${i}"] .connector-pipe`),
+    valveEl: overlay.querySelector(`.connector[data-index="${i}"] .connector-valve`),
+    lightEl: overlay.querySelector(`.connector[data-index="${i}"] .valve-light`),
+    svgEl: overlay.querySelector("svg"),
+  }));
+}
+
+function anchorCenter(circleEl, containerRect) {
+  const r = circleEl.getBoundingClientRect();
+  return { x: r.left + r.width / 2 - containerRect.left, y: r.top + r.height / 2 - containerRect.top };
+}
+
+function layoutConnectors(container, connectors) {
+  if (!connectors || !connectors.length) return;
+  const containerRect = container.getBoundingClientRect();
+  const svg = connectors[0].svgEl;
+  svg.setAttribute("width", containerRect.width);
+  svg.setAttribute("height", containerRect.height);
+  svg.setAttribute("viewBox", `0 0 ${containerRect.width} ${containerRect.height}`);
+
+  connectors.forEach((c) => {
+    const rightAnchor = c.from.cardEl.querySelector(".outlet-anchor-right");
+    const leftAnchor = c.to.cardEl.querySelector(".outlet-anchor-left");
+    const p1 = anchorCenter(rightAnchor, containerRect);
+    const p2 = anchorCenter(leftAnchor, containerRect);
+    const y = (p1.y + p2.y) / 2;
+    const x1 = Math.min(p1.x, p2.x);
+    const x2 = Math.max(p1.x, p2.x);
+
+    c.pipeEl.setAttribute("x", x1);
+    c.pipeEl.setAttribute("y", y - 4);
+    c.pipeEl.setAttribute("width", x2 - x1);
+    c.valveEl.setAttribute("transform", `translate(${(x1 + x2) / 2}, ${y})`);
+  });
+}
+
+function startValveBlink(connectors) {
+  if (!connectors || !connectors.length) return;
+  let green = true;
+  setInterval(() => {
+    green = !green;
+    connectors.forEach((c) => {
+      c.lightEl.setAttribute("fill", green ? "var(--good)" : "var(--bad)");
+    });
+  }, VALVE_BLINK_MS);
 }
 
 function showModal(id) {
@@ -260,15 +373,37 @@ function setupForgotPasswordForm() {
   });
 }
 
-function setupCalibrationForm() {
-  const outletInput = document.getElementById("outlet-mm");
-  const overflowInput = document.getElementById("overflow-mm");
-  const capacityInput = document.getElementById("capacity-l");
-  const statusEl = document.getElementById("cal-status");
-  const saveBtn = document.getElementById("save-btn");
-  const form = document.getElementById("cal-form");
+function renderTankSettingsForm(tank, container) {
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `
+    <h3>${tank.name}</h3>
+    <form class="tank-settings-form">
+      <label class="field">
+        <span>Sensor Outlet (mm)</span>
+        <input type="number" class="outlet-mm" min="20" max="4500" required>
+      </label>
+      <label class="field">
+        <span>Sensor Overflow (mm)</span>
+        <input type="number" class="overflow-mm" min="20" max="4500" required>
+      </label>
+      <label class="field">
+        <span>Tank Capacity (litres)</span>
+        <input type="number" class="capacity-l" min="1" max="1000000" required>
+      </label>
+      <button type="submit" class="save-tank-btn">Save ${tank.name} settings</button>
+      <div class="status-msg tank-cal-status" role="status"></div>
+    </form>
+  `;
+  container.appendChild(wrap);
 
-  fetchConfig("tank1").then((cfg) => {
+  const outletInput = wrap.querySelector(".outlet-mm");
+  const overflowInput = wrap.querySelector(".overflow-mm");
+  const capacityInput = wrap.querySelector(".capacity-l");
+  const statusEl = wrap.querySelector(".tank-cal-status");
+  const saveBtn = wrap.querySelector(".save-tank-btn");
+  const form = wrap.querySelector("form");
+
+  fetchConfig(tank.id).then((cfg) => {
     if (!cfg) return;
     outletInput.value = cfg.sensor_outlet_mm;
     overflowInput.value = cfg.sensor_overflow_mm;
@@ -295,11 +430,11 @@ function setupCalibrationForm() {
     }
 
     saveBtn.disabled = true;
-    const result = await saveConfig("tank1", outletMm, overflowMm, capacityL, unlockedPassword);
+    const result = await saveConfig(tank.id, outletMm, overflowMm, capacityL, unlockedPassword);
     saveBtn.disabled = false;
 
     if (result.ok) {
-      statusEl.textContent = "Saved. Tank 1 will pick this up within a minute.";
+      statusEl.textContent = "Saved. " + tank.name + " will pick this up within a minute.";
       statusEl.className = "status-msg ok";
     } else if (result.status === 401) {
       statusEl.textContent = "Session expired -- close Settings and unlock again.";
@@ -364,10 +499,17 @@ function setupChangePasswordForm() {
 
 function main() {
   const container = document.getElementById("tanks");
-  const tanks = TANKS.map((tank) => renderTank(tank, container));
+  const tankRenders = TANKS.map((tank) => ({ tank, ...renderTank(tank, container) }));
+
+  const connectors = buildConnectors(container, tankRenders);
+  if (connectors) {
+    layoutConnectors(container, connectors);
+    window.addEventListener("resize", () => layoutConnectors(container, connectors));
+    startValveBlink(connectors);
+  }
 
   async function pollAll() {
-    await Promise.all(tanks.map((t) => t.poll()));
+    await Promise.all(tankRenders.map((t) => t.poll()));
     document.getElementById("lastUpdate").textContent = new Date().toLocaleTimeString();
   }
 
@@ -377,7 +519,10 @@ function main() {
   setupModalCloseButtons();
   setupSettingsGate();
   setupForgotPasswordForm();
-  setupCalibrationForm();
+
+  const settingsList = document.getElementById("tank-settings-list");
+  TANKS.forEach((tank) => renderTankSettingsForm(tank, settingsList));
+
   setupChangePasswordForm();
 }
 
