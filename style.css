@@ -117,7 +117,7 @@ body::after {
   transform: rotate(20deg);
 }
 
-main { max-width: 960px; margin: 0 auto; }
+main { max-width: min(1400px, 96vw); margin: 0 auto; }
 
 .grid {
   display: grid;
@@ -129,11 +129,13 @@ main { max-width: 960px; margin: 0 auto; }
 .tanks-row {
   position: relative;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-wrap: nowrap; /* groups always sit side by side, never stack -- scroll instead of wrap */
+  justify-content: safe center;
   align-items: flex-start;
   gap: 72px; /* space between groups -- the inter-group valve lives in here */
   margin-bottom: 20px;
+  overflow-x: auto;
+  padding-bottom: 4px;
 }
 
 /* Sub-tanks of one group (Tank 1's, or Tank 2's) sit inside their own
@@ -175,6 +177,23 @@ main { max-width: 960px; margin: 0 auto; }
 }
 .pipe-overlay { width: 100%; height: 100%; overflow: visible; }
 .valve-light { transition: fill 0.4s ease; }
+
+/* Marching-dash flow indicator drawn over an inter-group pipe, only visible
+   while its valve is open (green) -- direction is always tank2 -> tank1, so
+   stroke-dashoffset increases (see flow-toward-tank1 below: on this repo's
+   SVG coordinate convention, an increasing offset walks the dash pattern
+   backward along the line, i.e. from x2 toward x1). */
+.connector-flow {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.connector-flow.is-flowing {
+  opacity: 1;
+  animation: flow-toward-tank1 0.7s linear infinite;
+}
+@keyframes flow-toward-tank1 {
+  to { stroke-dashoffset: 32; }
+}
 
 .card {
   background: var(--card);
@@ -343,11 +362,26 @@ main { max-width: 960px; margin: 0 auto; }
 
 .modal-wide { max-width: 780px; }
 
+/* Tank 1's and Tank 2's settings blocks share one grid so their fields line
+   up row-for-row (subgrid), not just column-for-column -- a row's height
+   grows to fit whichever side needs more room (e.g. more sub-tanks), and
+   both sides stay aligned below it regardless. */
 #tank-settings-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 0 24px;
+  grid-template-rows: repeat(10, auto);
+  column-gap: 24px;
 }
+.tank-settings-block {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 10;
+}
+.tank-settings-form { display: contents; }
+/* Reserves its row instead of collapsing it, so hiding this field on one
+   side (tank_count <= 1) doesn't shift that side's rows out of alignment
+   with the other side's. */
+.field.field-reserved { visibility: hidden; }
 .tank-settings-block:not(:first-child) h3 {
   border-top: none;
   padding-top: 0;

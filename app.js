@@ -313,6 +313,7 @@ function buildConnectors(container, cardRenders) {
         <g class="connector" data-index="${i}">
           <rect class="connector-pipe" height="${link.isInterGroup ? 11 : 8}" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
           ${link.isInterGroup ? `
+          <line class="connector-flow" stroke="#8fe0ff" stroke-width="3" stroke-linecap="round" stroke-dasharray="6 10"/>
           <g class="connector-valve">
             <rect class="valve-coil" x="-10" y="-40" width="20" height="30" rx="3" fill="#22394a" stroke="#0a1620" stroke-width="2"/>
             <line class="valve-lead" x1="-6" y1="-40" x2="-6" y2="-48" stroke="#0a1620" stroke-width="2"/>
@@ -332,6 +333,7 @@ function buildConnectors(container, cardRenders) {
     pipeEl: overlay.querySelector(`.connector[data-index="${i}"] .connector-pipe`),
     valveEl: link.isInterGroup ? overlay.querySelector(`.connector[data-index="${i}"] .connector-valve`) : null,
     lightEl: link.isInterGroup ? overlay.querySelector(`.connector[data-index="${i}"] .valve-light`) : null,
+    flowEl: link.isInterGroup ? overlay.querySelector(`.connector[data-index="${i}"] .connector-flow`) : null,
     svgEl: overlay.querySelector("svg"),
   }));
 }
@@ -364,18 +366,36 @@ function layoutConnectors(container, connectors) {
     if (c.valveEl) {
       c.valveEl.setAttribute("transform", `translate(${(x1 + x2) / 2}, ${y})`);
     }
+    if (c.flowEl) {
+      // x1 is always the tank1-ward end, x2 the tank2-ward end (links are
+      // built in on-screen left-to-right order) -- the dash animation in
+      // CSS always walks from x2 toward x1, i.e. tank2 -> tank1.
+      c.flowEl.setAttribute("x1", x1);
+      c.flowEl.setAttribute("x2", x2);
+      c.flowEl.setAttribute("y1", y);
+      c.flowEl.setAttribute("y2", y);
+    }
   });
 }
 
 function startValveBlink(connectors) {
   const withValves = (connectors || []).filter((c) => c.lightEl);
   if (!withValves.length) return;
-  let green = true;
-  setInterval(() => {
-    green = !green;
+
+  function applyState(green) {
     withValves.forEach((c) => {
       c.lightEl.setAttribute("fill", green ? "var(--good)" : "var(--bad)");
+      // Open (green) = water is actually moving tank2 -> tank1; closed
+      // (red) = no flow, so the animated dashes stop and fade out.
+      if (c.flowEl) c.flowEl.classList.toggle("is-flowing", green);
     });
+  }
+
+  let green = true;
+  applyState(green);
+  setInterval(() => {
+    green = !green;
+    applyState(green);
   }, VALVE_BLINK_MS);
 }
 
@@ -487,7 +507,7 @@ function renderTankSettingsForm(group, container, onSaved) {
         <span>Number of tanks (1-5) -- more than one adds sub-tanks A, B, C... all showing this sensor's reading, linked by pipes</span>
         <input type="number" class="tank-count" min="${TANK_COUNT_MIN}" max="${TANK_COUNT_MAX}" required>
       </label>
-      <label class="field sensor-tank-field" hidden>
+      <label class="field sensor-tank-field field-reserved">
         <span>Which tank contains the sensor?</span>
         <select class="sensor-tank"></select>
       </label>
@@ -522,7 +542,10 @@ function renderTankSettingsForm(group, container, onSaved) {
   countInput.value = renderedCount;
 
   function refreshSensorTankOptions(count, selected) {
-    sensorTankField.hidden = count <= 1;
+    // Kept in the grid (visibility, not hidden/display:none) so this row
+    // still reserves its place -- see .field-reserved in style.css, which
+    // keeps this settings block's rows aligned with the other tank's.
+    sensorTankField.classList.toggle("field-reserved", count <= 1);
     const options = SUB_TANK_LETTERS.slice(0, count);
     sensorTankSelect.innerHTML = options.map((l) => `<option value="${l}">${l}</option>`).join("");
     sensorTankSelect.value = options.includes(selected) ? selected : options[0];
