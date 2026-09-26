@@ -96,21 +96,14 @@ corner, not on the page itself. Clicking it asks for the dashboard password
 once verified, the password is kept in memory for the rest of that page
 load (not persisted anywhere) and the Settings panel opens with:
 
-- **Alias / Number of tanks / Which tank has the sensor / Sensor Outlet /
-  Sensor Overflow / Diameter+Height per tank** -- saved together via
-  `POST /api/tanks/:id/config`. Alias is an optional display name (falls
-  back to "Tank 1"/"Tank 2"); Number of tanks (`tank_count`, 1-5) controls
-  how many sub-tank cards that group renders (see "Sub-tanks" below), and
-  when it's more than 1, which sub-tank (A/B/C...) actually houses the
-  sensor (`sensor_tank`) gets a small sensor icon on its lid.
-  Diameter/Height (mm, one pair *per sub-tank* -- `tank_dims`, an array)
-  are a physical measurement, separate from Sensor Outlet/Overflow -- the
-  Worker derives each sub-tank's litres from its own pair
-  (`pi*(diameter/2)^2*height`) and sums them into `tank_capacity_l` (what
-  the firmware actually uses) for display only; none of this affects the
-  fill-percent calculation. The site shows each sub-tank's own capacity
-  under its card, and the group's combined current/max litres (in purple)
-  below the row of cards.
+- **Alias / Sensor Outlet / Sensor Overflow / Diameter / Height** -- saved
+  together via `POST /api/tanks/:id/config`. Alias is an optional display
+  name (falls back to "Tank 1"/"Tank 2"). Diameter/Height (mm) are a
+  physical measurement, separate from Sensor Outlet/Overflow -- the Worker
+  derives the litres from them (`pi*(diameter/2)^2*height`) into
+  `tank_capacity_l`, for display only; none of this affects the
+  fill-percent calculation, which only ever depends on Sensor
+  Outlet/Overflow.
 - **Change password** -- a new `POST /api/change-password` endpoint, gated
   by the *current* password (sent the same way as a config save) rather
   than an emailed token. Successfully changing it updates the in-memory
@@ -173,28 +166,10 @@ to it by a pipe with a solenoid valve graphic in the middle -- for now that
 valve just alternates green/red every 10 seconds as a placeholder for a
 real transfer-control feature later.
 
-## Sub-tanks (one sensor, several linked tanks)
-
-Tank 1 and Tank 2 are each backed by one physical sensor, but either can be
-drawn as **more than one tank graphic** if that sensor actually feeds several
-tanks plumbed together (a common setup -- several linked tanks that share one
-water level since they're connected at the base). Settings has a **Number of
-tanks** field per group (1-5, `tank_count` in its stored config, validated by
-the Worker). Above 1, that group renders that many cards labelled with a
-letter suffix (Tank 1 A, Tank 1 B, ...), all showing the identical reading
-from that one sensor, each connected to the next by a pipe -- and the last
-one still connects into the next group (Tank 2) exactly as before.
-
-The whole rendered sequence (every sub-tank of every group, in order) is
-what actually gets piped together in `app.js` -- there's no separate
-per-group wiring to maintain; a group's sub-tank count is the only thing
-that changes the layout. Changing it in Settings reloads the page once
-saved, since the number of cards on screen has to change.
-
 ## Adding a third tank later
 
 Same pattern as Tank 2: duplicate the firmware project, give it its own
 `AP_SSID`/`TANK_ID`/`TANK_DEVICE_SECRET`, set a matching `wrangler secret
 put TANK3_DEVICE_SECRET`, seed `tank:tank3:config`, and add it to the
-`TANKS` array in `app.js`. It'll automatically pipe on from Tank 2's last
-sub-tank -- no extra flag needed.
+`TANKS` array in `app.js`. It'll automatically pipe on from Tank 2 -- no
+extra flag needed.

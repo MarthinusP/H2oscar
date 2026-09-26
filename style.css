@@ -161,39 +161,6 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
   padding-bottom: 4px;
 }
 
-/* Sub-tanks of one group (Tank 1's, or Tank 2's) sit inside their own
-   frame, close together -- they're just pipe-coupled, always one level.
-   The frame stacks the card row above the group's total/capacity summary.
-   Everything here scales with --tank-scale (set in JS from the available
-   viewport space), so the whole layout grows to fill the screen when there
-   are only a few tanks and shrinks to fit when there are many. */
-.tank-group-frame {
-  display: flex;
-  flex-direction: column;
-  gap: calc(12px * var(--tank-scale, 1));
-  padding: calc(18px * var(--tank-scale, 1)) calc(20px * var(--tank-scale, 1)) calc(14px * var(--tank-scale, 1));
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: rgba(127, 163, 184, 0.04);
-}
-.tank-group-cards {
-  display: flex;
-  flex-wrap: nowrap; /* sub-tanks stay side by side too, never stack -- the outer row's horizontal scroll absorbs any overflow */
-  align-items: flex-start;
-  gap: calc(16px * var(--tank-scale, 1));
-}
-.group-summary {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 8px 32px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-  font-size: calc(clamp(1.1rem, 2vw + 0.6rem, 1.7rem) * var(--tank-scale, 1));
-  font-weight: 700;
-  color: var(--purple);
-}
-
 /* Absolutely positioned on top of the tank cards so a connecting pipe can
    run edge-to-edge between two tanks' outlet anchors, geometry computed in
    JS from their actual rendered positions. */
@@ -390,26 +357,11 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
 
 .modal-wide { max-width: 780px; }
 
-/* Tank 1's and Tank 2's settings blocks share one grid so their fields line
-   up row-for-row (subgrid), not just column-for-column -- a row's height
-   grows to fit whichever side needs more room (e.g. more sub-tanks), and
-   both sides stay aligned below it regardless. */
 #tank-settings-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  grid-template-rows: repeat(10, auto);
-  column-gap: 24px;
+  gap: 0 24px;
 }
-.tank-settings-block {
-  display: grid;
-  grid-template-rows: subgrid;
-  grid-row: span 10;
-}
-.tank-settings-form { display: contents; }
-/* Reserves its row instead of collapsing it, so hiding this field on one
-   side (tank_count <= 1) doesn't shift that side's rows out of alignment
-   with the other side's. */
-.field.field-reserved { visibility: hidden; }
 .tank-settings-block:not(:first-child) h3 {
   border-top: none;
   padding-top: 0;
@@ -447,9 +399,8 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
   font-size: 0.82rem;
   color: var(--muted);
 }
-/* [hidden] must win over display, or the sensor-tank field (JS-toggled
-   depending on tank count) never actually hides -- see the modal-backdrop
-   rule above for the same reasoning. */
+/* [hidden] must win over display, or a hidden field never actually hides --
+   see the modal-backdrop rule above for the same reasoning. */
 .field:not([hidden]) {
   display: flex;
 }
@@ -465,24 +416,6 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
 .field input:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .volume-note { margin: 0 0 12px; }
-
-.dims-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 10px;
-  padding: 10px 12px 2px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-.dims-row-label {
-  grid-column: 1 / -1;
-  margin: 0 0 2px;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-}
 
 button#save-btn, button#forgot-btn, button#reset-btn, button#gate-btn, button#password-btn {
   background: var(--accent);

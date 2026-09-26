@@ -8,9 +8,6 @@ const ROUTE_RE = /^\/api\/tanks\/([a-z0-9_-]+)\/(telemetry|config)$/;
 const CONFIG_MIN_MM = 20;
 const CONFIG_MAX_MM = 4500;
 const ALIAS_MAX_LEN = 40;
-const TANK_COUNT_MIN = 1;
-const TANK_COUNT_MAX = 5;
-const SUB_TANK_LETTERS = ["A", "B", "C", "D", "E"];
 const DIAMETER_MIN_MM = 100;
 const DIAMETER_MAX_MM = 10000;
 const HEIGHT_MIN_MM = 100;
@@ -128,57 +125,43 @@ async function handleConfigPost(request, env, tankId) {
 
   const outletMm = body.sensor_outlet_mm;
   const overflowMm = body.sensor_overflow_mm;
-  const tankCount = body.tank_count;
-  const sensorTank = body.sensor_tank;
-  const tankDims = body.tank_dims;
+  const diameterMm = body.diameter_mm;
+  const heightMm = body.height_mm;
 
   const dimsValid =
-    Array.isArray(tankDims) &&
-    Number.isInteger(tankCount) &&
-    tankDims.length === tankCount &&
-    tankDims.every((d) =>
-      d &&
-      Number.isInteger(d.diameter_mm) &&
-      Number.isInteger(d.height_mm) &&
-      d.diameter_mm >= DIAMETER_MIN_MM &&
-      d.diameter_mm <= DIAMETER_MAX_MM &&
-      d.height_mm >= HEIGHT_MIN_MM &&
-      d.height_mm <= HEIGHT_MAX_MM
-    );
+    Number.isInteger(diameterMm) &&
+    Number.isInteger(heightMm) &&
+    diameterMm >= DIAMETER_MIN_MM &&
+    diameterMm <= DIAMETER_MAX_MM &&
+    heightMm >= HEIGHT_MIN_MM &&
+    heightMm <= HEIGHT_MAX_MM;
 
   if (
     !Number.isInteger(outletMm) ||
     !Number.isInteger(overflowMm) ||
-    !Number.isInteger(tankCount) ||
     outletMm < CONFIG_MIN_MM ||
     outletMm > CONFIG_MAX_MM ||
     overflowMm < CONFIG_MIN_MM ||
     overflowMm > CONFIG_MAX_MM ||
     outletMm <= overflowMm ||
-    tankCount < TANK_COUNT_MIN ||
-    tankCount > TANK_COUNT_MAX ||
-    !dimsValid ||
-    typeof sensorTank !== "string" ||
-    !SUB_TANK_LETTERS.slice(0, tankCount).includes(sensorTank)
+    !dimsValid
   ) {
     return jsonResponse({ error: "invalid_config" }, 400);
   }
 
   const alias = typeof body.alias === "string" ? body.alias.trim().slice(0, ALIAS_MAX_LEN) : "";
 
-  // Volume per sub-tank is derived here (not trusted from the client) from
-  // a simple cylindrical-tank formula -- diameter/height are what the user
-  // actually measures for each linked tank; the total (what the firmware
-  // needs for its own volume figure) is just their sum.
-  const capacityL = tankDims.reduce((sum, d) => sum + cylinderLitres(d.diameter_mm, d.height_mm), 0);
+  // Volume is derived here (not trusted from the client) from a simple
+  // cylindrical-tank formula -- diameter/height are what the user actually
+  // measures; this is only used for display, never for the % reading.
+  const capacityL = cylinderLitres(diameterMm, heightMm);
 
   const record = {
     sensor_outlet_mm: outletMm,
     sensor_overflow_mm: overflowMm,
-    tank_count: tankCount,
-    tank_dims: tankDims,
+    diameter_mm: diameterMm,
+    height_mm: heightMm,
     tank_capacity_l: capacityL,
-    sensor_tank: sensorTank,
     alias,
     updated_ts: Date.now(),
   };

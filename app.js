@@ -1,9 +1,5 @@
 // API_BASE lives in site-config.js, shared with reset.html.
-// Each entry in TANKS is one physical sensor group (one ESP32). How many
-// tank graphics it renders is a per-group setting (tank_count, 1-5) set in
-// Settings and fetched from the Worker -- not hardcoded here. Sub-tanks
-// within a group all show identical readings (one shared sensor, plumbed
-// together), labelled with a letter suffix (A, B, C...) when count > 1.
+// Each entry in TANKS is one physical tank (one ESP32 + one sensor).
 const TANKS = [
   { id: "tank1", name: "Tank 1" },
   { id: "tank2", name: "Tank 2" },
@@ -11,14 +7,11 @@ const TANKS = [
 const POLL_INTERVAL_MS = 5000;
 const STALE_THRESHOLD_MS = 15000; // ~3x the firmware's push interval
 const VALVE_BLINK_MS = 10000;
-const TANK_COUNT_MIN = 1;
-const TANK_COUNT_MAX = 5;
-const SUB_TANK_LETTERS = ["A", "B", "C", "D", "E"];
 
 // =====================================================================
 // TEMPORARY DEV-ONLY STUB -- REMOVE ONCE THE REAL SENSORS ARE ONLINE.
 // Sensors aren't wired up yet, so real telemetry never arrives; while
-// that's true, a fake distance reading (mm) is substituted per group so
+// that's true, a fake distance reading (mm) is substituted per tank so
 // the tank graphics/settings can be developed against something. Once
 // ESP1/ESP2 are actually reporting, delete this block (and the fallback
 // that uses it in pollAll()) -- real telemetry always wins over this
@@ -31,13 +24,6 @@ const DEV_FAKE_DISTANCE_MM = {
 // =====================================================================
 
 let unlockedPassword = null; // kept in memory only, cleared on page reload
-
-function clampTankCount(n) {
-  n = parseInt(n, 10);
-  if (!Number.isInteger(n) || n < TANK_COUNT_MIN) return TANK_COUNT_MIN;
-  if (n > TANK_COUNT_MAX) return TANK_COUNT_MAX;
-  return n;
-}
 
 // Mirrors the Worker's own derivation, so the UI can update instantly on
 // save without waiting on a re-fetch -- the Worker remains the source of
@@ -83,7 +69,7 @@ async function verifyPassword(password) {
   return { ok: res.ok, status: res.status };
 }
 
-async function saveConfig(tankId, outletMm, overflowMm, tankCount, tankDims, sensorTank, alias, password) {
+async function saveConfig(tankId, outletMm, overflowMm, diameterMm, heightMm, alias, password) {
   const res = await fetch(`${API_BASE}/api/tanks/${tankId}/config`, {
     method: "POST",
     headers: {
@@ -93,9 +79,8 @@ async function saveConfig(tankId, outletMm, overflowMm, tankCount, tankDims, sen
     body: JSON.stringify({
       sensor_outlet_mm: outletMm,
       sensor_overflow_mm: overflowMm,
-      tank_count: tankCount,
-      tank_dims: tankDims,
-      sensor_tank: sensorTank,
+      diameter_mm: diameterMm,
+      height_mm: heightMm,
       alias,
     }),
   });
@@ -132,20 +117,15 @@ async function requestPasswordReset(email) {
   return res.ok;
 }
 
-// Builds one tank card's DOM for a single rendered instance -- a group
-// renders more than one of these when its tank_count setting is > 1. Each
-// instance carries its own subCapacityL (from that sub-tank's own stored
-// diameter/height), separate from the group's summed total. Returns an
-// update function the group-level poller calls with shared telemetry
-// (every instance in a group shows the same % reading), plus setAlias for
-// the Settings panel to drive live.
+// Builds one tank card's DOM. Returns an update function the poller calls
+// with that tank's telemetry, plus setAlias/setMaxLiters for the Settings
+// panel to drive live.
 function renderTankCard(instance, container) {
   const group = instance.group;
-  const uid = instance.uid;
+  const uid = group.id;
 
   function labelFor(alias) {
-    const base = alias && alias.trim() ? alias.trim() : group.name;
-    return instance.subLabel ? `${base} ${instance.subLabel}` : base;
+    return alias && alias.trim() ? alias.trim() : group.name;
   }
 
   const card = document.createElement("div");
@@ -199,11 +179,9 @@ function renderTankCard(instance, container) {
       <ellipse cx="80" cy="14" rx="60" ry="9" fill="#2a4457" stroke="#0a1620" stroke-width="2"/>
       <ellipse cx="80" cy="12" rx="18" ry="4.5" fill="#16252f" stroke="#0a1620" stroke-width="1.5"/>
 
-      ${instance.hasSensor ? `
-      <!-- ultrasonic sensor housing -- marks which sub-tank physically holds it -->
+      <!-- ultrasonic sensor housing -->
       <rect x="72" y="1" width="16" height="10" rx="2" fill="#4d7488" stroke="#0a1620" stroke-width="1.2"/>
       <circle cx="80" cy="6" r="2" fill="#2fb4d9"/>
-      ` : ""}
 
       <!-- overflow pipe (upper) -->
       <rect x="138" y="44" width="16" height="8" rx="2" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
@@ -227,7 +205,7 @@ function renderTankCard(instance, container) {
     </svg>
     <div class="tank-pct"><span class="pct-value">--</span><span class="pct-unit">%</span></div>
     <div class="tank-meta"><span class="volume-value">--</span> L</div>
-    <div class="tank-max-line">Max: <span class="max-value">${instance.subCapacityL || "--"}</span> L</div>
+    <div class="tank-max-line">Max: <span class="max-value">${instance.capacityL || "--"}</span> L</div>
   `;
   container.appendChild(card);
 
@@ -240,14 +218,14 @@ function renderTankCard(instance, container) {
   const aliasEl = card.querySelector(".tank-alias-line");
   const maxEl = card.querySelector(".max-value");
 
-  let subCapacityL = instance.subCapacityL;
+  let capacityL = instance.capacityL;
 
   function setAlias(alias) {
     aliasEl.textContent = labelFor(alias);
   }
 
-  function setMaxLiters(capacityL) {
-    subCapacityL = capacityL;
+  function setMaxLiters(newCapacityL) {
+    capacityL = newCapacityL;
     maxEl.textContent = capacityL >= 1 ? Math.round(capacityL) : "--";
   }
 
@@ -267,7 +245,7 @@ function renderTankCard(instance, container) {
       const pct = Math.round(data.level_pct);
       waterEl.style.height = pct + "%";
       pctEl.textContent = pct;
-      volEl.textContent = subCapacityL >= 1 ? Math.round((data.level_pct / 100) * subCapacityL) : "n/a";
+      volEl.textContent = capacityL >= 1 ? Math.round((data.level_pct / 100) * capacityL) : "n/a";
     } else {
       waterEl.style.height = "0%";
       pctEl.innerHTML = '<span class="na">n/a</span>';
@@ -287,22 +265,15 @@ function renderTankCard(instance, container) {
   return { instance, cardEl: card, setAlias, setMaxLiters, updateFromTelemetry };
 }
 
-// Draws the connecting pipe(s) between every consecutive pair of rendered
-// tank cards. Within a group (sub-tanks of the same sensor, e.g. Tank 1 A
-// to Tank 1 B) it's a plain pipe only -- they're permanently coupled and
-// always share one level, nothing to valve. Only *between* groups (Tank 1's
-// last sub-tank into Tank 2's first) is there an actual solenoid valve,
-// drawn larger since it's the one meaningful control point. Geometry is
-// computed in JS from each card's actual rendered outlet-anchor
+// Draws the connecting pipe + solenoid valve between Tank 1 and Tank 2.
+// Geometry is computed in JS from each card's actual rendered outlet-anchor
 // coordinates, recomputed on layoutConnectors() (initial render + resize).
 function buildConnectors(container, cardRenders) {
   if (cardRenders.length < 2) return null;
 
   const links = [];
   for (let i = 0; i < cardRenders.length - 1; i++) {
-    const from = cardRenders[i];
-    const to = cardRenders[i + 1];
-    links.push({ from, to, isInterGroup: from.instance.group.id !== to.instance.group.id });
+    links.push({ from: cardRenders[i], to: cardRenders[i + 1] });
   }
 
   const overlay = document.createElement("div");
@@ -312,7 +283,6 @@ function buildConnectors(container, cardRenders) {
       ${links.map((link, i) => `
         <g class="connector" data-index="${i}">
           <rect class="connector-pipe" height="10" fill="#4d7488" stroke="#0a1620" stroke-width="1.5"/>
-          ${link.isInterGroup ? `
           <line class="connector-flow" stroke="#8fe0ff" stroke-width="3" stroke-linecap="round" stroke-dasharray="6 10"/>
           <g class="connector-valve">
             <rect class="valve-coil" x="-10" y="-40" width="20" height="30" rx="3" fill="#22394a" stroke="#0a1620" stroke-width="2"/>
@@ -321,7 +291,6 @@ function buildConnectors(container, cardRenders) {
             <rect class="valve-body" x="-14" y="-10" width="28" height="20" rx="3" fill="#3a5b6e" stroke="#0a1620" stroke-width="2"/>
             <circle class="valve-light" cx="0" cy="-25" r="6.5" fill="var(--good)"/>
           </g>
-          ` : ""}
         </g>
       `).join("")}
     </svg>
@@ -331,9 +300,9 @@ function buildConnectors(container, cardRenders) {
   return links.map((link, i) => ({
     ...link,
     pipeEl: overlay.querySelector(`.connector[data-index="${i}"] .connector-pipe`),
-    valveEl: link.isInterGroup ? overlay.querySelector(`.connector[data-index="${i}"] .connector-valve`) : null,
-    lightEl: link.isInterGroup ? overlay.querySelector(`.connector[data-index="${i}"] .valve-light`) : null,
-    flowEl: link.isInterGroup ? overlay.querySelector(`.connector[data-index="${i}"] .connector-flow`) : null,
+    valveEl: overlay.querySelector(`.connector[data-index="${i}"] .connector-valve`),
+    lightEl: overlay.querySelector(`.connector[data-index="${i}"] .valve-light`),
+    flowEl: overlay.querySelector(`.connector[data-index="${i}"] .connector-flow`),
     svgEl: overlay.querySelector("svg"),
   }));
 }
@@ -343,12 +312,7 @@ function anchorCenter(circleEl, containerRect) {
   return { x: r.left + r.width / 2 - containerRect.left, y: r.top + r.height / 2 - containerRect.top, r: r.width / 2 };
 }
 
-// groupFrames (id -> { frame, cardsRow }) is optional -- when given, an
-// inter-group valve is centered on the actual gap between the two group
-// frame boxes rather than on the midpoint of the two nearest cards' anchors,
-// so it sits dead center between the frames even if one frame is wider than
-// the other (different sub-tank counts on each side).
-function layoutConnectors(container, connectors, groupFrames) {
+function layoutConnectors(container, connectors) {
   if (!connectors || !connectors.length) return;
   const containerRect = container.getBoundingClientRect();
   const svg = connectors[0].svgEl;
@@ -367,27 +331,9 @@ function layoutConnectors(container, connectors, groupFrames) {
     // of stopping halfway through them.
     const leftPoint = p1.x <= p2.x ? p1 : p2;
     const rightPoint = p1.x <= p2.x ? p2 : p1;
-    let x1 = leftPoint.x - leftPoint.r;
-    let x2 = rightPoint.x + rightPoint.r;
-
-    let valveX = (x1 + x2) / 2;
-    if (c.isInterGroup && groupFrames) {
-      const fromFrame = groupFrames.get(c.from.instance.group.id);
-      const toFrame = groupFrames.get(c.to.instance.group.id);
-      if (fromFrame && toFrame) {
-        const fromRight = fromFrame.frame.getBoundingClientRect().right - containerRect.left;
-        const toLeft = toFrame.frame.getBoundingClientRect().left - containerRect.left;
-        valveX = (fromRight + toLeft) / 2;
-        // Re-center the pipe span itself around the frame-gap midpoint too,
-        // so the run is exactly as long on both sides of the valve --
-        // otherwise a slightly-off anchor measurement on one side alone
-        // could make the valve look off-center even though its transform
-        // is technically correct.
-        const half = (x2 - x1) / 2;
-        x1 = valveX - half;
-        x2 = valveX + half;
-      }
-    }
+    const x1 = leftPoint.x - leftPoint.r;
+    const x2 = rightPoint.x + rightPoint.r;
+    const valveX = (x1 + x2) / 2;
 
     c.pipeEl.setAttribute("x", x1);
     c.pipeEl.setAttribute("y", y - 5);
@@ -411,29 +357,24 @@ function layoutConnectors(container, connectors, groupFrames) {
 // Grows or shrinks every tank card (and the gaps/padding around it) via the
 // --tank-scale CSS variable so the whole tanks-row actually fills the space
 // available below the header, instead of always rendering at one fixed
-// size regardless of window size or how many tanks are configured. Measured
-// at scale 1 first, then solved for the largest scale that still fits both
-// the available width and the available height; clamped so it never gets
-// unreadably small or absurdly large.
+// size regardless of window size. Measured at scale 1 first, then solved
+// for the largest scale that still fits the available height; clamped so
+// it never gets unreadably small or absurdly large.
 function computeAndApplyTankScale(container) {
   container.style.setProperty("--tank-scale", "1");
 
   const naturalWidth = container.scrollWidth;
   let naturalHeight = 0;
-  container.querySelectorAll(".tank-group-frame").forEach((frame) => {
-    naturalHeight = Math.max(naturalHeight, frame.getBoundingClientRect().height);
+  container.querySelectorAll(".tank-card").forEach((card) => {
+    naturalHeight = Math.max(naturalHeight, card.getBoundingClientRect().height);
   });
   if (!naturalWidth || !naturalHeight) return;
 
   const topRect = container.getBoundingClientRect();
   const availableHeight = window.innerHeight - topRect.top - 24; // breathing room above the footer
 
-  // Scale by available *height* only -- with only 1-2 groups the row was
-  // nowhere near main's max-width, so capping the scale at the width ratio
-  // too (the previous behavior) left the row barely bigger than at scale 1
-  // even though most of the screen below it was empty. Any width overflow
-  // this causes (many groups/sub-tanks on a narrow window) is caught by
-  // .tanks-row's own horizontal scroll, which is the intended release valve.
+  // Scale by available *height* only -- any width overflow this causes on a
+  // narrow window is caught by .tanks-row's own horizontal scroll.
   let scale = availableHeight / naturalHeight;
   scale = Math.max(0.6, Math.min(scale, 2.4));
   container.style.setProperty("--tank-scale", scale.toFixed(3));
@@ -565,14 +506,6 @@ function renderTankSettingsForm(group, container, onSaved) {
         <input type="text" class="tank-alias" maxlength="40" placeholder="${group.name}">
       </label>
       <label class="field">
-        <span>Number of tanks (1-5) -- more than one adds sub-tanks A, B, C... all showing this sensor's reading, linked by pipes</span>
-        <input type="number" class="tank-count" min="${TANK_COUNT_MIN}" max="${TANK_COUNT_MAX}" required>
-      </label>
-      <label class="field sensor-tank-field field-reserved">
-        <span>Which tank contains the sensor?</span>
-        <select class="sensor-tank"></select>
-      </label>
-      <label class="field">
         <span>Sensor Outlet (mm)</span>
         <input type="number" class="outlet-mm" min="20" max="4500" required>
       </label>
@@ -580,8 +513,15 @@ function renderTankSettingsForm(group, container, onSaved) {
         <span>Sensor Overflow (mm)</span>
         <input type="number" class="overflow-mm" min="20" max="4500" required>
       </label>
-      <p class="muted volume-note">Used only to calculate the litres shown for display -- has no effect on the % reading above. Each linked tank can be a different size.</p>
-      <div class="dims-list"></div>
+      <p class="muted volume-note">Diameter/Height are used only to calculate the litres shown for display -- they have no effect on the % reading above.</p>
+      <label class="field">
+        <span>Diameter (mm)</span>
+        <input type="number" class="diameter-mm" min="100" max="10000" required>
+      </label>
+      <label class="field">
+        <span>Height (mm)</span>
+        <input type="number" class="height-mm" min="100" max="10000" required>
+      </label>
       <button type="submit" class="save-tank-btn">Save ${group.name} settings</button>
       <div class="status-msg tank-cal-status" role="status"></div>
     </form>
@@ -589,78 +529,21 @@ function renderTankSettingsForm(group, container, onSaved) {
   container.appendChild(wrap);
 
   const aliasInput = wrap.querySelector(".tank-alias");
-  const countInput = wrap.querySelector(".tank-count");
-  const sensorTankField = wrap.querySelector(".sensor-tank-field");
-  const sensorTankSelect = wrap.querySelector(".sensor-tank");
   const outletInput = wrap.querySelector(".outlet-mm");
   const overflowInput = wrap.querySelector(".overflow-mm");
-  const dimsList = wrap.querySelector(".dims-list");
+  const diameterInput = wrap.querySelector(".diameter-mm");
+  const heightInput = wrap.querySelector(".height-mm");
   const statusEl = wrap.querySelector(".tank-cal-status");
   const saveBtn = wrap.querySelector(".save-tank-btn");
   const form = wrap.querySelector("form");
-
-  let renderedCount = TANK_COUNT_MIN;
-  countInput.value = renderedCount;
-
-  function refreshSensorTankOptions(count, selected) {
-    // Kept in the grid (visibility, not hidden/display:none) so this row
-    // still reserves its place -- see .field-reserved in style.css, which
-    // keeps this settings block's rows aligned with the other tank's.
-    sensorTankField.classList.toggle("field-reserved", count <= 1);
-    const options = SUB_TANK_LETTERS.slice(0, count);
-    sensorTankSelect.innerHTML = options.map((l) => `<option value="${l}">${l}</option>`).join("");
-    sensorTankSelect.value = options.includes(selected) ? selected : options[0];
-  }
-
-  // Rebuilds the diameter/height row list to match `count`, preserving
-  // whatever's already been typed (by position) when just growing/shrinking
-  // the count, or using `existingDims` (from a fetched config) when given.
-  function refreshDimsFields(count, existingDims) {
-    const prevValues = Array.from(dimsList.querySelectorAll(".dims-row")).map((row) => ({
-      diameter: row.querySelector(".diameter-mm").value,
-      height: row.querySelector(".height-mm").value,
-    }));
-    dimsList.innerHTML = "";
-    for (let i = 0; i < count; i++) {
-      const existing = existingDims && existingDims[i];
-      const prev = prevValues[i];
-      const diameterVal = existing ? existing.diameter_mm : (prev ? prev.diameter : "");
-      const heightVal = existing ? existing.height_mm : (prev ? prev.height : "");
-      const row = document.createElement("div");
-      row.className = "dims-row";
-      row.innerHTML = `
-        <p class="dims-row-label">Tank${count > 1 ? " " + SUB_TANK_LETTERS[i] : ""}</p>
-        <label class="field">
-          <span>Diameter (mm)</span>
-          <input type="number" class="diameter-mm" min="100" max="10000" value="${diameterVal}" required>
-        </label>
-        <label class="field">
-          <span>Height (mm)</span>
-          <input type="number" class="height-mm" min="100" max="10000" value="${heightVal}" required>
-        </label>
-      `;
-      dimsList.appendChild(row);
-    }
-  }
-
-  refreshSensorTankOptions(renderedCount, "A");
-  refreshDimsFields(renderedCount, null);
-
-  countInput.addEventListener("input", () => {
-    const count = clampTankCount(countInput.value);
-    refreshSensorTankOptions(count, sensorTankSelect.value);
-    refreshDimsFields(count, null);
-  });
 
   fetchConfig(group.id).then((cfg) => {
     if (!cfg) return;
     aliasInput.value = cfg.alias || "";
     outletInput.value = cfg.sensor_outlet_mm;
     overflowInput.value = cfg.sensor_overflow_mm;
-    renderedCount = clampTankCount(cfg.tank_count);
-    countInput.value = renderedCount;
-    refreshSensorTankOptions(renderedCount, cfg.sensor_tank || "A");
-    refreshDimsFields(renderedCount, cfg.tank_dims);
+    diameterInput.value = cfg.diameter_mm || "";
+    heightInput.value = cfg.height_mm || "";
   });
 
   form.addEventListener("submit", async (evt) => {
@@ -669,8 +552,6 @@ function renderTankSettingsForm(group, container, onSaved) {
     statusEl.className = "status-msg";
 
     const alias = aliasInput.value.trim();
-    const tankCount = clampTankCount(countInput.value);
-    const sensorTank = sensorTankSelect.value;
     const outletMm = parseInt(outletInput.value, 10);
     const overflowMm = parseInt(overflowInput.value, 10);
     if (!Number.isInteger(outletMm) || !Number.isInteger(overflowMm) || outletMm <= overflowMm) {
@@ -679,34 +560,23 @@ function renderTankSettingsForm(group, container, onSaved) {
       return;
     }
 
-    const tankDims = Array.from(dimsList.querySelectorAll(".dims-row")).map((row) => ({
-      diameter_mm: parseInt(row.querySelector(".diameter-mm").value, 10),
-      height_mm: parseInt(row.querySelector(".height-mm").value, 10),
-    }));
-    const dimsBad = tankDims.some(
-      (d) => !Number.isInteger(d.diameter_mm) || d.diameter_mm < 100 || !Number.isInteger(d.height_mm) || d.height_mm < 100
-    );
-    if (dimsBad) {
-      statusEl.textContent = "Each tank's Diameter and Height must be positive numbers (in mm).";
+    const diameterMm = parseInt(diameterInput.value, 10);
+    const heightMm = parseInt(heightInput.value, 10);
+    if (!Number.isInteger(diameterMm) || diameterMm < 100 || !Number.isInteger(heightMm) || heightMm < 100) {
+      statusEl.textContent = "Diameter and Height must be positive numbers (in mm).";
       statusEl.className = "status-msg error";
       return;
     }
 
     saveBtn.disabled = true;
-    const result = await saveConfig(group.id, outletMm, overflowMm, tankCount, tankDims, sensorTank, alias, unlockedPassword);
+    const result = await saveConfig(group.id, outletMm, overflowMm, diameterMm, heightMm, alias, unlockedPassword);
     saveBtn.disabled = false;
 
     if (result.ok) {
-      if (tankCount !== renderedCount) {
-        statusEl.textContent = "Saved. Reloading to rebuild the tank layout...";
-        statusEl.className = "status-msg ok";
-        setTimeout(() => location.reload(), 1200);
-      } else {
-        statusEl.textContent = "Saved. " + group.name + " will pick this up within a minute.";
-        statusEl.className = "status-msg ok";
-        const subCapacities = tankDims.map((d) => computeCapacityL(d.diameter_mm, d.height_mm));
-        if (onSaved) onSaved(alias, subCapacities);
-      }
+      statusEl.textContent = "Saved. " + group.name + " will pick this up within a minute.";
+      statusEl.className = "status-msg ok";
+      const capacityL = computeCapacityL(diameterMm, heightMm);
+      if (onSaved) onSaved(alias, capacityL);
     } else if (result.status === 401) {
       statusEl.textContent = "Session expired -- close Settings and unlock again.";
       statusEl.className = "status-msg error";
@@ -771,86 +641,29 @@ function setupChangePasswordForm() {
 async function main() {
   const container = document.getElementById("tanks");
 
-  // Each group's tank_count decides how many cards it renders -- fetch all
-  // of them up front so the whole layout (including inter-tank pipes) can
-  // be built once, correctly, instead of growing/shifting as data trickles in.
   const groupConfigs = await Promise.all(TANKS.map((group) => fetchConfig(group.id)));
   const groupCfgById = new Map(TANKS.map((group, i) => [group.id, groupConfigs[i]]));
 
-  const instances = [];
-  TANKS.forEach((group, gi) => {
-    const groupCfg = groupConfigs[gi];
-    const count = clampTankCount(groupCfg && groupCfg.tank_count);
-    const sensorTank = (groupCfg && groupCfg.sensor_tank) || "A";
-    const dims = groupCfg && Array.isArray(groupCfg.tank_dims) ? groupCfg.tank_dims : null;
-    for (let i = 0; i < count; i++) {
-      const subLabel = count > 1 ? SUB_TANK_LETTERS[i] : null;
-      const d = dims && dims[i];
-      instances.push({
-        group,
-        groupCfg,
-        uid: `${group.id}_${i}`,
-        indexInGroup: i,
-        subLabel,
-        hasSensor: count > 1 && subLabel === sensorTank,
-        subCapacityL: d ? computeCapacityL(d.diameter_mm, d.height_mm) : null,
-      });
-    }
-  });
-  instances.forEach((inst, idx) => {
-    inst.isFirstOverall = idx === 0;
+  const instances = TANKS.map((group, i) => {
+    const groupCfg = groupConfigs[i];
+    const hasDims = groupCfg && Number.isInteger(groupCfg.diameter_mm) && Number.isInteger(groupCfg.height_mm);
+    return {
+      group,
+      groupCfg,
+      capacityL: hasDims ? computeCapacityL(groupCfg.diameter_mm, groupCfg.height_mm) : null,
+      isFirstOverall: i === 0,
+    };
   });
 
-  // Each group gets its own bordered frame (a nested flex row with a
-  // tighter gap than the outer row, which now only spaces frames apart from
-  // each other -- sub-tanks within a group sit close together since
-  // they're just pipe-coupled, not valved).
-  const groupFrames = new Map();
-  function cardsRowFor(group) {
-    if (!groupFrames.has(group.id)) {
-      const frame = document.createElement("div");
-      frame.className = "tank-group-frame";
-      const cardsRow = document.createElement("div");
-      cardsRow.className = "tank-group-cards";
-      frame.appendChild(cardsRow);
-      container.appendChild(frame);
-      groupFrames.set(group.id, { frame, cardsRow });
-    }
-    return groupFrames.get(group.id).cardsRow;
-  }
-
-  const cardRenders = instances.map((inst) => renderTankCard(inst, cardsRowFor(inst.group)));
-
-  // A summary row per group, below its cards, inside the same frame: the
-  // combined current litres (from the shared % reading) and the combined
-  // max capacity (sum of every sub-tank's own capacity).
-  const groupSummaries = new Map();
-  TANKS.forEach((group, gi) => {
-    const entry = groupFrames.get(group.id);
-    const frame = entry && entry.frame;
-    if (!frame) return;
-    const groupCfg = groupConfigs[gi];
-    const summary = document.createElement("div");
-    summary.className = "group-summary";
-    summary.innerHTML = `
-      <div>Current: <span class="group-total-value">--</span> L</div>
-      <div>Capacity: <span class="group-capacity-value">${(groupCfg && groupCfg.tank_capacity_l) || "--"}</span> L</div>
-    `;
-    frame.appendChild(summary);
-    groupSummaries.set(group.id, {
-      totalEl: summary.querySelector(".group-total-value"),
-      capacityEl: summary.querySelector(".group-capacity-value"),
-      capacityL: (groupCfg && groupCfg.tank_capacity_l) || null,
-    });
-  });
+  const cardRenders = instances.map((inst) => renderTankCard(inst, container));
 
   computeAndApplyTankScale(container);
   const connectors = buildConnectors(container, cardRenders);
   if (connectors) {
-    layoutConnectors(container, connectors, groupFrames);
+    layoutConnectors(container, connectors);
     window.addEventListener("resize", () => {
       computeAndApplyTankScale(container);
-      layoutConnectors(container, connectors, groupFrames);
+      layoutConnectors(container, connectors);
     });
     startValveBlink(connectors);
   }
@@ -883,14 +696,6 @@ async function main() {
       cardRenders
         .filter((r) => r.instance.group.id === group.id)
         .forEach((r) => r.updateFromTelemetry(data));
-
-      const summary = groupSummaries.get(group.id);
-      if (summary) {
-        summary.totalEl.textContent =
-          data && data.valid && data.level_pct >= 0 && summary.capacityL
-            ? Math.round((data.level_pct / 100) * summary.capacityL)
-            : "--";
-      }
     }));
     document.getElementById("lastUpdate").textContent = new Date().toLocaleTimeString();
   }
@@ -904,21 +709,14 @@ async function main() {
 
   const settingsList = document.getElementById("tank-settings-list");
   TANKS.forEach((group) => {
-    renderTankSettingsForm(group, settingsList, (alias, subCapacities) => {
-      const groupCards = cardRenders.filter((r) => r.instance.group.id === group.id);
-      groupCards.forEach((r) => {
-        r.setAlias(alias);
-        r.setMaxLiters(subCapacities[r.instance.indexInGroup]);
-      });
-
-      const summary = groupSummaries.get(group.id);
-      if (summary) {
-        summary.capacityL = subCapacities.reduce((sum, c) => sum + c, 0);
-        summary.capacityEl.textContent = Math.round(summary.capacityL);
+    renderTankSettingsForm(group, settingsList, (alias, capacityL) => {
+      const card = cardRenders.find((r) => r.instance.group.id === group.id);
+      if (card) {
+        card.setAlias(alias);
+        card.setMaxLiters(capacityL);
       }
-
       computeAndApplyTankScale(container);
-      if (connectors) layoutConnectors(container, connectors, groupFrames);
+      if (connectors) layoutConnectors(container, connectors);
     });
   });
 
