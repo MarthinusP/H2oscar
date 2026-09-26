@@ -83,7 +83,7 @@ body {
 }
 
 .page-header {
-  margin-bottom: 22px;
+  margin-bottom: 8px;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
@@ -128,7 +128,7 @@ body {
     transform 0.12s ease, box-shadow 0.12s ease;
   flex: none;
 }
-.gear-btn svg { width: 28px; height: 28px; }
+.gear-btn svg { width: 26px; height: 26px; }
 .gear-btn:hover {
   color: var(--text);
   border-color: var(--accent-deep);
@@ -362,16 +362,8 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 0 24px;
 }
-.tank-settings-block:not(:first-child) h3 {
-  border-top: none;
-  padding-top: 0;
-}
 @media (max-width: 620px) {
   #tank-settings-list { grid-template-columns: 1fr; }
-  .tank-settings-block:not(:first-child) h3 {
-    border-top: 1px solid var(--border);
-    padding-top: 16px;
-  }
 }
 
 .modal-close {

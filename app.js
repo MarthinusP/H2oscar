@@ -347,7 +347,7 @@ function computeAndApplyTankScale(container) {
 
   // Scale by available *height* only -- any width overflow this causes on a
   // narrow window is caught by .tanks-row's own horizontal scroll.
-  let scale = availableHeight / naturalHeight;
+  let scale = (availableHeight / naturalHeight) * 0.9; // 10% smaller than a full fit
   scale = Math.max(0.6, Math.min(scale, 2.4));
   container.style.setProperty("--tank-scale", scale.toFixed(3));
 }
