@@ -72,19 +72,23 @@ body::after {
 
 .page-header {
   margin-bottom: 22px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
 }
+.page-header-spacer { flex: none; }
 .page-header h1 {
-  font-size: 1.6rem;
+  font-size: 3.2rem;
   font-weight: 700;
   margin: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 12px;
+  justify-self: center;
 }
+.page-header .gear-btn { justify-self: end; }
 .drop { filter: drop-shadow(0 0 6px rgba(47, 180, 217, 0.5)); }
 .sub { color: var(--muted); font-size: 0.85rem; }
 
@@ -175,12 +179,11 @@ main { max-width: 960px; margin: 0 auto; }
   margin-bottom: 12px;
 }
 
-.tank-name {
-  font-size: 0.8rem;
-  text-transform: none;
-  letter-spacing: normal;
-  color: var(--muted);
-  justify-self: start;
+.tank-alias-line {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
 }
 
 .tank-status-badge {
@@ -195,6 +198,12 @@ main { max-width: 960px; margin: 0 auto; }
 .wifi-line {
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+.fw-line {
+  font-size: 0.72rem;
+  color: var(--muted);
+  opacity: 0.8;
   margin-bottom: 10px;
 }
 
@@ -362,11 +371,15 @@ button#save-btn:disabled, button#forgot-btn:disabled, button#reset-btn:disabled,
 #forgot-form { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 
 .page-footer {
-  max-width: 960px;
-  margin: 24px auto 0;
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
   color: var(--muted);
-  font-size: 0.78rem;
-  position: relative;
+  font-size: 1.05rem;
+  background: rgba(11, 22, 32, 0.75);
+  padding: 6px 12px;
+  border-radius: 8px;
+  z-index: 1;
 }
 
 @media (max-width: 480px) {

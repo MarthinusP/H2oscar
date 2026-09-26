@@ -9,6 +9,7 @@ const CONFIG_MIN_MM = 20;
 const CONFIG_MAX_MM = 4500;
 const CAPACITY_MIN_L = 1;
 const CAPACITY_MAX_L = 1000000;
+const ALIAS_MAX_LEN = 40;
 const PASSWORD_MIN_LEN = 8;
 const RATE_LIMIT_MAX_ATTEMPTS = 10;
 const RATE_LIMIT_WINDOW_S = 300;
@@ -87,6 +88,7 @@ async function handleTelemetryPost(request, env, tankId) {
     valid: body.valid,
     rssi: typeof body.rssi === "number" ? body.rssi : null,
     uptime_s: typeof body.uptime_s === "number" ? body.uptime_s : null,
+    fw_version: typeof body.fw_version === "string" ? body.fw_version : null,
     server_ts: Date.now(),
   };
 
@@ -137,10 +139,13 @@ async function handleConfigPost(request, env, tankId) {
     return jsonResponse({ error: "invalid_config" }, 400);
   }
 
+  const alias = typeof body.alias === "string" ? body.alias.trim().slice(0, ALIAS_MAX_LEN) : "";
+
   const record = {
     sensor_outlet_mm: outletMm,
     sensor_overflow_mm: overflowMm,
     tank_capacity_l: capacityL,
+    alias,
     updated_ts: Date.now(),
   };
   await env.TELEMETRY_KV.put(`tank:${tankId}:config`, JSON.stringify(record));

@@ -35,14 +35,19 @@ async function verifyPassword(password) {
   return { ok: res.ok, status: res.status };
 }
 
-async function saveConfig(tankId, outletMm, overflowMm, capacityL, password) {
+async function saveConfig(tankId, outletMm, overflowMm, capacityL, alias, password) {
   const res = await fetch(`${API_BASE}/api/tanks/${tankId}/config`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-Dashboard-Password": password,
     },
-    body: JSON.stringify({ sensor_outlet_mm: outletMm, sensor_overflow_mm: overflowMm, tank_capacity_l: capacityL }),
+    body: JSON.stringify({
+      sensor_outlet_mm: outletMm,
+      sensor_overflow_mm: overflowMm,
+      tank_capacity_l: capacityL,
+      alias,
+    }),
   });
   return { ok: res.ok, status: res.status };
 }
@@ -82,12 +87,14 @@ function renderTank(tank, container) {
   const card = document.createElement("div");
   card.className = "card tank-card";
   card.innerHTML = `
+    <div class="tank-alias-line">${tank.name}</div>
     <div class="tank-topline">
-      <span class="tank-name">${tank.name}</span>
+      <span></span>
       <span class="tank-status-badge offline">Offline</span>
       <span></span>
     </div>
     <div class="wifi-line"><span class="wifi-value">--</span></div>
+    <div class="fw-line">Firmware: <span class="fw-value">--</span></div>
     <svg class="tank-shell" viewBox="0 0 160 230" aria-hidden="true">
       <defs>
         <clipPath id="clip-${tank.id}">
@@ -158,6 +165,12 @@ function renderTank(tank, container) {
   const volEl = card.querySelector(".volume-value");
   const statusBadge = card.querySelector(".tank-status-badge");
   const wifiEl = card.querySelector(".wifi-value");
+  const fwEl = card.querySelector(".fw-value");
+  const aliasEl = card.querySelector(".tank-alias-line");
+
+  function setAlias(alias) {
+    aliasEl.textContent = alias && alias.trim() ? alias.trim() : tank.name;
+  }
 
   async function poll() {
     const data = await fetchTelemetry(tank.id);
@@ -189,10 +202,14 @@ function renderTank(tank, container) {
       ? `${data.rssi} dBm · ${wifiQualityLabel(data.rssi)}`
       : "--";
 
+    fwEl.textContent = data.fw_version ? `v${data.fw_version}` : "--";
+
     return online;
   }
 
-  return { poll, cardEl: card };
+  const aliasLoaded = fetchConfig(tank.id).then((cfg) => setAlias(cfg && cfg.alias));
+
+  return { poll, cardEl: card, setAlias, aliasLoaded };
 }
 
 // Draws the inter-tank pipe(s) + solenoid valve(s) as one absolutely
@@ -373,11 +390,15 @@ function setupForgotPasswordForm() {
   });
 }
 
-function renderTankSettingsForm(tank, container) {
+function renderTankSettingsForm(tank, container, onSaved) {
   const wrap = document.createElement("div");
   wrap.innerHTML = `
     <h3>${tank.name}</h3>
     <form class="tank-settings-form">
+      <label class="field">
+        <span>Alias (shown on the dashboard instead of "${tank.name}")</span>
+        <input type="text" class="tank-alias" maxlength="40" placeholder="${tank.name}">
+      </label>
       <label class="field">
         <span>Sensor Outlet (mm)</span>
         <input type="number" class="outlet-mm" min="20" max="4500" required>
@@ -396,6 +417,7 @@ function renderTankSettingsForm(tank, container) {
   `;
   container.appendChild(wrap);
 
+  const aliasInput = wrap.querySelector(".tank-alias");
   const outletInput = wrap.querySelector(".outlet-mm");
   const overflowInput = wrap.querySelector(".overflow-mm");
   const capacityInput = wrap.querySelector(".capacity-l");
@@ -405,6 +427,7 @@ function renderTankSettingsForm(tank, container) {
 
   fetchConfig(tank.id).then((cfg) => {
     if (!cfg) return;
+    aliasInput.value = cfg.alias || "";
     outletInput.value = cfg.sensor_outlet_mm;
     overflowInput.value = cfg.sensor_overflow_mm;
     capacityInput.value = cfg.tank_capacity_l;
@@ -415,6 +438,7 @@ function renderTankSettingsForm(tank, container) {
     statusEl.textContent = "";
     statusEl.className = "status-msg";
 
+    const alias = aliasInput.value.trim();
     const outletMm = parseInt(outletInput.value, 10);
     const overflowMm = parseInt(overflowInput.value, 10);
     const capacityL = parseInt(capacityInput.value, 10);
@@ -430,12 +454,13 @@ function renderTankSettingsForm(tank, container) {
     }
 
     saveBtn.disabled = true;
-    const result = await saveConfig(tank.id, outletMm, overflowMm, capacityL, unlockedPassword);
+    const result = await saveConfig(tank.id, outletMm, overflowMm, capacityL, alias, unlockedPassword);
     saveBtn.disabled = false;
 
     if (result.ok) {
       statusEl.textContent = "Saved. " + tank.name + " will pick this up within a minute.";
       statusEl.className = "status-msg ok";
+      if (onSaved) onSaved(alias);
     } else if (result.status === 401) {
       statusEl.textContent = "Session expired -- close Settings and unlock again.";
       statusEl.className = "status-msg error";
@@ -506,6 +531,9 @@ function main() {
     layoutConnectors(container, connectors);
     window.addEventListener("resize", () => layoutConnectors(container, connectors));
     startValveBlink(connectors);
+    // Aliases load async and can change a card's height (longer/shorter text
+    // than the "Tank N" placeholder), so re-align once they're in too.
+    Promise.all(tankRenders.map((t) => t.aliasLoaded)).then(() => layoutConnectors(container, connectors));
   }
 
   async function pollAll() {
@@ -521,7 +549,14 @@ function main() {
   setupForgotPasswordForm();
 
   const settingsList = document.getElementById("tank-settings-list");
-  TANKS.forEach((tank) => renderTankSettingsForm(tank, settingsList));
+  TANKS.forEach((tank) => {
+    const tankRender = tankRenders.find((t) => t.tank.id === tank.id);
+    renderTankSettingsForm(tank, settingsList, (alias) => {
+      if (!tankRender) return;
+      tankRender.setAlias(alias);
+      if (connectors) layoutConnectors(container, connectors);
+    });
+  });
 
   setupChangePasswordForm();
 }
