@@ -311,7 +311,7 @@ function buildConnectors(container, cardRenders) {
     <svg class="pipe-overlay" aria-hidden="true">
       ${links.map((link, i) => `
         <g class="connector" data-index="${i}">
-          <rect class="connector-pipe" height="8" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
+          <rect class="connector-pipe" height="10" fill="#4d7488" stroke="#0a1620" stroke-width="1.5"/>
           ${link.isInterGroup ? `
           <line class="connector-flow" stroke="#8fe0ff" stroke-width="3" stroke-linecap="round" stroke-dasharray="6 10"/>
           <g class="connector-valve">
@@ -367,12 +367,8 @@ function layoutConnectors(container, connectors, groupFrames) {
     // of stopping halfway through them.
     const leftPoint = p1.x <= p2.x ? p1 : p2;
     const rightPoint = p1.x <= p2.x ? p2 : p1;
-    const x1 = leftPoint.x - leftPoint.r;
-    const x2 = rightPoint.x + rightPoint.r;
-
-    c.pipeEl.setAttribute("x", x1);
-    c.pipeEl.setAttribute("y", y - 4);
-    c.pipeEl.setAttribute("width", x2 - x1);
+    let x1 = leftPoint.x - leftPoint.r;
+    let x2 = rightPoint.x + rightPoint.r;
 
     let valveX = (x1 + x2) / 2;
     if (c.isInterGroup && groupFrames) {
@@ -382,8 +378,21 @@ function layoutConnectors(container, connectors, groupFrames) {
         const fromRight = fromFrame.frame.getBoundingClientRect().right - containerRect.left;
         const toLeft = toFrame.frame.getBoundingClientRect().left - containerRect.left;
         valveX = (fromRight + toLeft) / 2;
+        // Re-center the pipe span itself around the frame-gap midpoint too,
+        // so the run is exactly as long on both sides of the valve --
+        // otherwise a slightly-off anchor measurement on one side alone
+        // could make the valve look off-center even though its transform
+        // is technically correct.
+        const half = (x2 - x1) / 2;
+        x1 = valveX - half;
+        x2 = valveX + half;
       }
     }
+
+    c.pipeEl.setAttribute("x", x1);
+    c.pipeEl.setAttribute("y", y - 5);
+    c.pipeEl.setAttribute("width", x2 - x1);
+
     if (c.valveEl) {
       c.valveEl.setAttribute("transform", `translate(${valveX}, ${y})`);
     }
@@ -397,6 +406,32 @@ function layoutConnectors(container, connectors, groupFrames) {
       c.flowEl.setAttribute("y2", y);
     }
   });
+}
+
+// Grows or shrinks every tank card (and the gaps/padding around it) via the
+// --tank-scale CSS variable so the whole tanks-row actually fills the space
+// available below the header, instead of always rendering at one fixed
+// size regardless of window size or how many tanks are configured. Measured
+// at scale 1 first, then solved for the largest scale that still fits both
+// the available width and the available height; clamped so it never gets
+// unreadably small or absurdly large.
+function computeAndApplyTankScale(container) {
+  container.style.setProperty("--tank-scale", "1");
+
+  const naturalWidth = container.scrollWidth;
+  let naturalHeight = 0;
+  container.querySelectorAll(".tank-group-frame").forEach((frame) => {
+    naturalHeight = Math.max(naturalHeight, frame.getBoundingClientRect().height);
+  });
+  if (!naturalWidth || !naturalHeight) return;
+
+  const topRect = container.getBoundingClientRect();
+  const availableWidth = container.clientWidth;
+  const availableHeight = window.innerHeight - topRect.top - 24; // breathing room above the footer
+
+  let scale = Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight);
+  scale = Math.max(0.6, Math.min(scale, 2.4));
+  container.style.setProperty("--tank-scale", scale.toFixed(3));
 }
 
 function startValveBlink(connectors) {
@@ -804,10 +839,14 @@ async function main() {
     });
   });
 
+  computeAndApplyTankScale(container);
   const connectors = buildConnectors(container, cardRenders);
   if (connectors) {
     layoutConnectors(container, connectors, groupFrames);
-    window.addEventListener("resize", () => layoutConnectors(container, connectors, groupFrames));
+    window.addEventListener("resize", () => {
+      computeAndApplyTankScale(container);
+      layoutConnectors(container, connectors, groupFrames);
+    });
     startValveBlink(connectors);
   }
 
@@ -873,6 +912,7 @@ async function main() {
         summary.capacityEl.textContent = Math.round(summary.capacityL);
       }
 
+      computeAndApplyTankScale(container);
       if (connectors) layoutConnectors(container, connectors, groupFrames);
     });
   });

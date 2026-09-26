@@ -43,6 +43,22 @@ body {
   background-attachment: fixed;
 }
 
+/* Faint waterline silhouette anchored to the bottom of the viewport -- kept
+   behind everything (z-index -1) so tank frames can grow over it at large
+   --tank-scale without needing to avoid it. */
+body::after {
+  content: "";
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: 120px;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.35;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='120' viewBox='0 0 600 120'><path d='M0,60 C100,20 200,90 300,55 C400,20 500,90 600,55 L600,120 L0,120 Z' fill='%231c7fa6'/></svg>");
+  background-repeat: repeat-x;
+  background-size: 600px 120px;
+}
+
 /* Ruler/gauge tick marks down the left margin -- only where there's room
    outside the centered content column. */
 @media (min-width: 760px) {
@@ -137,7 +153,7 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
   flex-wrap: nowrap; /* groups always sit side by side, never stack -- scroll instead of wrap */
   justify-content: safe center;
   align-items: flex-start;
-  gap: 72px; /* space between groups -- the inter-group valve lives in here */
+  gap: calc(72px * var(--tank-scale, 1)); /* space between groups -- the inter-group valve lives in here */
   margin-bottom: 20px;
   overflow-x: auto;
   padding-bottom: 4px;
@@ -145,12 +161,15 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
 
 /* Sub-tanks of one group (Tank 1's, or Tank 2's) sit inside their own
    frame, close together -- they're just pipe-coupled, always one level.
-   The frame stacks the card row above the group's total/capacity summary. */
+   The frame stacks the card row above the group's total/capacity summary.
+   Everything here scales with --tank-scale (set in JS from the available
+   viewport space), so the whole layout grows to fill the screen when there
+   are only a few tanks and shrinks to fit when there are many. */
 .tank-group-frame {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 18px 20px 14px;
+  gap: calc(12px * var(--tank-scale, 1));
+  padding: calc(18px * var(--tank-scale, 1)) calc(20px * var(--tank-scale, 1)) calc(14px * var(--tank-scale, 1));
   border: 1px solid var(--border);
   border-radius: 18px;
   background: rgba(127, 163, 184, 0.04);
@@ -159,7 +178,7 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 16px;
+  gap: calc(16px * var(--tank-scale, 1));
 }
 .group-summary {
   display: flex;
@@ -168,7 +187,7 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
   gap: 8px 32px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
-  font-size: clamp(1.1rem, 2vw + 0.6rem, 1.7rem);
+  font-size: calc(clamp(1.1rem, 2vw + 0.6rem, 1.7rem) * var(--tank-scale, 1));
   font-weight: 700;
   color: var(--purple);
 }
@@ -206,7 +225,7 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 16px;
-  padding: 20px 22px;
+  padding: calc(20px * var(--tank-scale, 1)) calc(22px * var(--tank-scale, 1));
 }
 
 .card h2 {
@@ -243,7 +262,7 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
 }
 
 .tank-alias-line {
-  font-size: 1.05rem;
+  font-size: calc(1.05rem * var(--tank-scale, 1));
   font-weight: 600;
   color: var(--purple);
   margin-bottom: 4px;
@@ -251,7 +270,7 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
 
 .tank-status-badge {
   justify-self: center;
-  font-size: 1.25rem;
+  font-size: calc(1.25rem * var(--tank-scale, 1));
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -271,7 +290,7 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
 }
 
 .tank-shell {
-  width: 170px;
+  width: calc(170px * var(--tank-scale, 1));
   height: auto;
   filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.45));
 }
@@ -319,22 +338,22 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
 
 .tank-pct {
   margin-top: -8px;
-  font-size: 1.7rem;
+  font-size: calc(1.7rem * var(--tank-scale, 1));
   font-weight: 700;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
-.pct-unit { font-size: 1rem; font-weight: 500; margin-left: 2px; color: var(--muted); }
+.pct-unit { font-size: calc(1rem * var(--tank-scale, 1)); font-weight: 500; margin-left: 2px; color: var(--muted); }
 
 .tank-meta {
   margin-top: 10px;
-  font-size: 0.9rem;
+  font-size: calc(0.9rem * var(--tank-scale, 1));
   color: var(--muted);
 }
 .tank-meta .volume-value { color: var(--text); font-weight: 600; }
 
 .tank-max-line {
   margin-top: 2px;
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--tank-scale, 1));
   color: var(--muted);
   opacity: 0.85;
 }
