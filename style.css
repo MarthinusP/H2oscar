@@ -297,6 +297,25 @@ main { max-width: 960px; margin: 0 auto; }
   overflow-y: auto;
 }
 
+.modal-wide { max-width: 780px; }
+
+#tank-settings-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0 24px;
+}
+.tank-settings-block:not(:first-child) h3 {
+  border-top: none;
+  padding-top: 0;
+}
+@media (max-width: 620px) {
+  #tank-settings-list { grid-template-columns: 1fr; }
+  .tank-settings-block:not(:first-child) h3 {
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+}
+
 .modal-close {
   position: absolute;
   top: 14px;
@@ -316,22 +335,30 @@ main { max-width: 960px; margin: 0 auto; }
 /* ---------------- Forms ---------------- */
 
 .field {
-  display: flex;
   flex-direction: column;
   gap: 4px;
   margin-bottom: 12px;
   font-size: 0.82rem;
   color: var(--muted);
 }
-.field input {
+/* [hidden] must win over display, or the sensor-tank field (JS-toggled
+   depending on tank count) never actually hides -- see the modal-backdrop
+   rule above for the same reasoning. */
+.field:not([hidden]) {
+  display: flex;
+}
+.field input, .field select {
   background: var(--bg-alt);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 9px 10px;
   color: var(--text);
   font-size: 0.95rem;
+  font-family: inherit;
 }
-.field input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.field input:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.volume-note { margin: 0 0 12px; }
 
 button#save-btn, button#forgot-btn, button#reset-btn, button#gate-btn, button#password-btn {
   background: var(--accent);

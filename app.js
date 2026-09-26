@@ -47,7 +47,7 @@ async function verifyPassword(password) {
   return { ok: res.ok, status: res.status };
 }
 
-async function saveConfig(tankId, outletMm, overflowMm, capacityL, tankCount, alias, password) {
+async function saveConfig(tankId, outletMm, overflowMm, tankCount, diameterMm, heightMm, sensorTank, alias, password) {
   const res = await fetch(`${API_BASE}/api/tanks/${tankId}/config`, {
     method: "POST",
     headers: {
@@ -57,8 +57,10 @@ async function saveConfig(tankId, outletMm, overflowMm, capacityL, tankCount, al
     body: JSON.stringify({
       sensor_outlet_mm: outletMm,
       sensor_overflow_mm: overflowMm,
-      tank_capacity_l: capacityL,
       tank_count: tankCount,
+      tank_diameter_mm: diameterMm,
+      tank_height_mm: heightMm,
+      sensor_tank: sensorTank,
       alias,
     }),
   });
@@ -159,6 +161,12 @@ function renderTankCard(instance, container) {
       <!-- lid -->
       <ellipse cx="80" cy="14" rx="60" ry="9" fill="#2a4457" stroke="#0a1620" stroke-width="2"/>
       <ellipse cx="80" cy="12" rx="18" ry="4.5" fill="#16252f" stroke="#0a1620" stroke-width="1.5"/>
+
+      ${instance.hasSensor ? `
+      <!-- ultrasonic sensor housing -- marks which sub-tank physically holds it -->
+      <rect x="72" y="1" width="16" height="10" rx="2" fill="#4d7488" stroke="#0a1620" stroke-width="1.2"/>
+      <circle cx="80" cy="6" r="2" fill="#2fb4d9"/>
+      ` : ""}
 
       <!-- overflow pipe (upper) -->
       <rect x="138" y="44" width="16" height="8" rx="2" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
@@ -410,6 +418,7 @@ function setupForgotPasswordForm() {
 
 function renderTankSettingsForm(group, container, onSaved) {
   const wrap = document.createElement("div");
+  wrap.className = "tank-settings-block";
   wrap.innerHTML = `
     <h3>${group.name}</h3>
     <form class="tank-settings-form">
@@ -421,6 +430,10 @@ function renderTankSettingsForm(group, container, onSaved) {
         <span>Number of tanks (1-5) -- more than one adds sub-tanks A, B, C... all showing this sensor's reading, linked by pipes</span>
         <input type="number" class="tank-count" min="${TANK_COUNT_MIN}" max="${TANK_COUNT_MAX}" required>
       </label>
+      <label class="field sensor-tank-field" hidden>
+        <span>Which tank contains the sensor?</span>
+        <select class="sensor-tank"></select>
+      </label>
       <label class="field">
         <span>Sensor Outlet (mm)</span>
         <input type="number" class="outlet-mm" min="20" max="4500" required>
@@ -429,9 +442,14 @@ function renderTankSettingsForm(group, container, onSaved) {
         <span>Sensor Overflow (mm)</span>
         <input type="number" class="overflow-mm" min="20" max="4500" required>
       </label>
+      <p class="muted volume-note">Used only to calculate the litres shown for display -- has no effect on the % reading above.</p>
       <label class="field">
-        <span>Tank Capacity (litres)</span>
-        <input type="number" class="capacity-l" min="1" max="1000000" required>
+        <span>Tank Diameter (mm)</span>
+        <input type="number" class="diameter-mm" min="100" max="10000" required>
+      </label>
+      <label class="field">
+        <span>Tank Height (mm)</span>
+        <input type="number" class="height-mm" min="100" max="10000" required>
       </label>
       <button type="submit" class="save-tank-btn">Save ${group.name} settings</button>
       <div class="status-msg tank-cal-status" role="status"></div>
@@ -441,9 +459,12 @@ function renderTankSettingsForm(group, container, onSaved) {
 
   const aliasInput = wrap.querySelector(".tank-alias");
   const countInput = wrap.querySelector(".tank-count");
+  const sensorTankField = wrap.querySelector(".sensor-tank-field");
+  const sensorTankSelect = wrap.querySelector(".sensor-tank");
   const outletInput = wrap.querySelector(".outlet-mm");
   const overflowInput = wrap.querySelector(".overflow-mm");
-  const capacityInput = wrap.querySelector(".capacity-l");
+  const diameterInput = wrap.querySelector(".diameter-mm");
+  const heightInput = wrap.querySelector(".height-mm");
   const statusEl = wrap.querySelector(".tank-cal-status");
   const saveBtn = wrap.querySelector(".save-tank-btn");
   const form = wrap.querySelector("form");
@@ -451,14 +472,28 @@ function renderTankSettingsForm(group, container, onSaved) {
   let renderedCount = TANK_COUNT_MIN;
   countInput.value = renderedCount;
 
+  function refreshSensorTankOptions(count, selected) {
+    sensorTankField.hidden = count <= 1;
+    const options = SUB_TANK_LETTERS.slice(0, count);
+    sensorTankSelect.innerHTML = options.map((l) => `<option value="${l}">${l}</option>`).join("");
+    sensorTankSelect.value = options.includes(selected) ? selected : options[0];
+  }
+
+  refreshSensorTankOptions(renderedCount, "A");
+  countInput.addEventListener("input", () => {
+    refreshSensorTankOptions(clampTankCount(countInput.value), sensorTankSelect.value);
+  });
+
   fetchConfig(group.id).then((cfg) => {
     if (!cfg) return;
     aliasInput.value = cfg.alias || "";
     outletInput.value = cfg.sensor_outlet_mm;
     overflowInput.value = cfg.sensor_overflow_mm;
-    capacityInput.value = cfg.tank_capacity_l;
+    diameterInput.value = cfg.tank_diameter_mm || "";
+    heightInput.value = cfg.tank_height_mm || "";
     renderedCount = clampTankCount(cfg.tank_count);
     countInput.value = renderedCount;
+    refreshSensorTankOptions(renderedCount, cfg.sensor_tank || "A");
   });
 
   form.addEventListener("submit", async (evt) => {
@@ -468,22 +503,26 @@ function renderTankSettingsForm(group, container, onSaved) {
 
     const alias = aliasInput.value.trim();
     const tankCount = clampTankCount(countInput.value);
+    const sensorTank = sensorTankSelect.value;
     const outletMm = parseInt(outletInput.value, 10);
     const overflowMm = parseInt(overflowInput.value, 10);
-    const capacityL = parseInt(capacityInput.value, 10);
+    const diameterMm = parseInt(diameterInput.value, 10);
+    const heightMm = parseInt(heightInput.value, 10);
     if (!Number.isInteger(outletMm) || !Number.isInteger(overflowMm) || outletMm <= overflowMm) {
       statusEl.textContent = "Sensor Outlet must be a bigger number than Sensor Overflow.";
       statusEl.className = "status-msg error";
       return;
     }
-    if (!Number.isInteger(capacityL) || capacityL < 1) {
-      statusEl.textContent = "Tank Capacity must be a positive number.";
+    if (!Number.isInteger(diameterMm) || diameterMm < 100 || !Number.isInteger(heightMm) || heightMm < 100) {
+      statusEl.textContent = "Tank Diameter and Height must be positive numbers (in mm).";
       statusEl.className = "status-msg error";
       return;
     }
 
     saveBtn.disabled = true;
-    const result = await saveConfig(group.id, outletMm, overflowMm, capacityL, tankCount, alias, unlockedPassword);
+    const result = await saveConfig(
+      group.id, outletMm, overflowMm, tankCount, diameterMm, heightMm, sensorTank, alias, unlockedPassword
+    );
     saveBtn.disabled = false;
 
     if (result.ok) {
@@ -569,12 +608,15 @@ async function main() {
   TANKS.forEach((group, gi) => {
     const groupCfg = groupConfigs[gi];
     const count = clampTankCount(groupCfg && groupCfg.tank_count);
+    const sensorTank = (groupCfg && groupCfg.sensor_tank) || "A";
     for (let i = 0; i < count; i++) {
+      const subLabel = count > 1 ? SUB_TANK_LETTERS[i] : null;
       instances.push({
         group,
         groupCfg,
         uid: `${group.id}_${i}`,
-        subLabel: count > 1 ? SUB_TANK_LETTERS[i] : null,
+        subLabel,
+        hasSensor: count > 1 && subLabel === sensorTank,
       });
     }
   });

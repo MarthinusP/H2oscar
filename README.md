@@ -87,11 +87,17 @@ corner, not on the page itself. Clicking it asks for the dashboard password
 once verified, the password is kept in memory for the rest of that page
 load (not persisted anywhere) and the Settings panel opens with:
 
-- **Alias / Number of tanks / Sensor Outlet / Sensor Overflow / Tank
-  Capacity** -- saved together via `POST /api/tanks/:id/config`. Alias is
-  an optional display name (falls back to "Tank 1"/"Tank 2"); Number of
-  tanks (`tank_count`, 1-5) controls how many sub-tank cards that group
-  renders (see "Sub-tanks" below).
+- **Alias / Number of tanks / Which tank has the sensor / Sensor Outlet /
+  Sensor Overflow / Tank Diameter / Tank Height** -- saved together via
+  `POST /api/tanks/:id/config`. Alias is an optional display name (falls
+  back to "Tank 1"/"Tank 2"); Number of tanks (`tank_count`, 1-5) controls
+  how many sub-tank cards that group renders (see "Sub-tanks" below), and
+  when it's more than 1, which sub-tank (A/B/C...) actually houses the
+  sensor (`sensor_tank`) gets a small sensor icon on its lid. Diameter and
+  Height (mm) are a physical tank measurement, separate from Sensor
+  Outlet/Overflow -- the Worker derives litres from them
+  (`tank_capacity_l = pi*(diameter/2)^2*height`) for display only; they
+  never affect the fill-percent calculation.
 - **Change password** -- a new `POST /api/change-password` endpoint, gated
   by the *current* password (sent the same way as a config save) rather
   than an emailed token. Successfully changing it updates the in-memory

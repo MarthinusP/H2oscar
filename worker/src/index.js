@@ -7,11 +7,14 @@ const ROUTE_RE = /^\/api\/tanks\/([a-z0-9_-]+)\/(telemetry|config)$/;
 
 const CONFIG_MIN_MM = 20;
 const CONFIG_MAX_MM = 4500;
-const CAPACITY_MIN_L = 1;
-const CAPACITY_MAX_L = 1000000;
 const ALIAS_MAX_LEN = 40;
 const TANK_COUNT_MIN = 1;
 const TANK_COUNT_MAX = 5;
+const SUB_TANK_LETTERS = ["A", "B", "C", "D", "E"];
+const DIAMETER_MIN_MM = 100;
+const DIAMETER_MAX_MM = 10000;
+const HEIGHT_MIN_MM = 100;
+const HEIGHT_MAX_MM = 10000;
 const PASSWORD_MIN_LEN = 8;
 const RATE_LIMIT_MAX_ATTEMPTS = 10;
 const RATE_LIMIT_WINDOW_S = 300;
@@ -125,33 +128,49 @@ async function handleConfigPost(request, env, tankId) {
 
   const outletMm = body.sensor_outlet_mm;
   const overflowMm = body.sensor_overflow_mm;
-  const capacityL = body.tank_capacity_l;
   const tankCount = body.tank_count;
+  const diameterMm = body.tank_diameter_mm;
+  const heightMm = body.tank_height_mm;
+  const sensorTank = body.sensor_tank;
   if (
     !Number.isInteger(outletMm) ||
     !Number.isInteger(overflowMm) ||
-    !Number.isInteger(capacityL) ||
     !Number.isInteger(tankCount) ||
+    !Number.isInteger(diameterMm) ||
+    !Number.isInteger(heightMm) ||
     outletMm < CONFIG_MIN_MM ||
     outletMm > CONFIG_MAX_MM ||
     overflowMm < CONFIG_MIN_MM ||
     overflowMm > CONFIG_MAX_MM ||
     outletMm <= overflowMm ||
-    capacityL < CAPACITY_MIN_L ||
-    capacityL > CAPACITY_MAX_L ||
     tankCount < TANK_COUNT_MIN ||
-    tankCount > TANK_COUNT_MAX
+    tankCount > TANK_COUNT_MAX ||
+    diameterMm < DIAMETER_MIN_MM ||
+    diameterMm > DIAMETER_MAX_MM ||
+    heightMm < HEIGHT_MIN_MM ||
+    heightMm > HEIGHT_MAX_MM ||
+    typeof sensorTank !== "string" ||
+    !SUB_TANK_LETTERS.slice(0, tankCount).includes(sensorTank)
   ) {
     return jsonResponse({ error: "invalid_config" }, 400);
   }
 
   const alias = typeof body.alias === "string" ? body.alias.trim().slice(0, ALIAS_MAX_LEN) : "";
 
+  // Volume is derived here (not trusted from the client) from a simple
+  // cylindrical-tank formula -- diameter/height are what the user actually
+  // measures; the firmware only ever needs the resulting litre figure.
+  const radiusMm = diameterMm / 2;
+  const capacityL = Math.max(1, Math.round((Math.PI * radiusMm * radiusMm * heightMm) / 1e6));
+
   const record = {
     sensor_outlet_mm: outletMm,
     sensor_overflow_mm: overflowMm,
-    tank_capacity_l: capacityL,
     tank_count: tankCount,
+    tank_diameter_mm: diameterMm,
+    tank_height_mm: heightMm,
+    tank_capacity_l: capacityL,
+    sensor_tank: sensorTank,
     alias,
     updated_ts: Date.now(),
   };
