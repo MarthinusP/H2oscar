@@ -10,6 +10,8 @@ const CONFIG_MAX_MM = 4500;
 const CAPACITY_MIN_L = 1;
 const CAPACITY_MAX_L = 1000000;
 const ALIAS_MAX_LEN = 40;
+const TANK_COUNT_MIN = 1;
+const TANK_COUNT_MAX = 5;
 const PASSWORD_MIN_LEN = 8;
 const RATE_LIMIT_MAX_ATTEMPTS = 10;
 const RATE_LIMIT_WINDOW_S = 300;
@@ -124,17 +126,21 @@ async function handleConfigPost(request, env, tankId) {
   const outletMm = body.sensor_outlet_mm;
   const overflowMm = body.sensor_overflow_mm;
   const capacityL = body.tank_capacity_l;
+  const tankCount = body.tank_count;
   if (
     !Number.isInteger(outletMm) ||
     !Number.isInteger(overflowMm) ||
     !Number.isInteger(capacityL) ||
+    !Number.isInteger(tankCount) ||
     outletMm < CONFIG_MIN_MM ||
     outletMm > CONFIG_MAX_MM ||
     overflowMm < CONFIG_MIN_MM ||
     overflowMm > CONFIG_MAX_MM ||
     outletMm <= overflowMm ||
     capacityL < CAPACITY_MIN_L ||
-    capacityL > CAPACITY_MAX_L
+    capacityL > CAPACITY_MAX_L ||
+    tankCount < TANK_COUNT_MIN ||
+    tankCount > TANK_COUNT_MAX
   ) {
     return jsonResponse({ error: "invalid_config" }, 400);
   }
@@ -145,6 +151,7 @@ async function handleConfigPost(request, env, tankId) {
     sensor_outlet_mm: outletMm,
     sensor_overflow_mm: overflowMm,
     tank_capacity_l: capacityL,
+    tank_count: tankCount,
     alias,
     updated_ts: Date.now(),
   };

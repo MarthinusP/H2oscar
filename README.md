@@ -87,9 +87,11 @@ corner, not on the page itself. Clicking it asks for the dashboard password
 once verified, the password is kept in memory for the rest of that page
 load (not persisted anywhere) and the Settings panel opens with:
 
-- **Sensor Outlet / Sensor Overflow / Tank Capacity** -- saved together via
-  the existing `POST /api/tanks/:id/config`, now also validating
-  `tank_capacity_l` (integer, 1 to 1,000,000).
+- **Alias / Number of tanks / Sensor Outlet / Sensor Overflow / Tank
+  Capacity** -- saved together via `POST /api/tanks/:id/config`. Alias is
+  an optional display name (falls back to "Tank 1"/"Tank 2"); Number of
+  tanks (`tank_count`, 1-5) controls how many sub-tank cards that group
+  renders (see "Sub-tanks" below).
 - **Change password** -- a new `POST /api/change-password` endpoint, gated
   by the *current* password (sent the same way as a config save) rather
   than an emailed token. Successfully changing it updates the in-memory
@@ -147,16 +149,33 @@ npx wrangler kv key put --binding=TELEMETRY_KV "tank:tank2:config" --path tank2-
 ```
 
 Tank 2 shows up automatically on the site (it's in the `TANKS` array in
-`app.js`) with its own Settings section, to the right of Tank 1. It also
-gets a mirrored outlet stub on its *left* side, connected to Tank 1's right
-outlet by a pipe with a solenoid valve graphic in the middle -- for now that
+`app.js`) with its own Settings section, to the right of Tank 1, connected
+to it by a pipe with a solenoid valve graphic in the middle -- for now that
 valve just alternates green/red every 10 seconds as a placeholder for a
 real transfer-control feature later.
+
+## Sub-tanks (one sensor, several linked tanks)
+
+Tank 1 and Tank 2 are each backed by one physical sensor, but either can be
+drawn as **more than one tank graphic** if that sensor actually feeds several
+tanks plumbed together (a common setup -- several linked tanks that share one
+water level since they're connected at the base). Settings has a **Number of
+tanks** field per group (1-5, `tank_count` in its stored config, validated by
+the Worker). Above 1, that group renders that many cards labelled with a
+letter suffix (Tank 1 A, Tank 1 B, ...), all showing the identical reading
+from that one sensor, each connected to the next by a pipe -- and the last
+one still connects into the next group (Tank 2) exactly as before.
+
+The whole rendered sequence (every sub-tank of every group, in order) is
+what actually gets piped together in `app.js` -- there's no separate
+per-group wiring to maintain; a group's sub-tank count is the only thing
+that changes the layout. Changing it in Settings reloads the page once
+saved, since the number of cards on screen has to change.
 
 ## Adding a third tank later
 
 Same pattern as Tank 2: duplicate the firmware project, give it its own
 `AP_SSID`/`TANK_ID`/`TANK_DEVICE_SECRET`, set a matching `wrangler secret
 put TANK3_DEVICE_SECRET`, seed `tank:tank3:config`, and add it to the
-`TANKS` array in `app.js`. Give it `leftOutlet: true` there if you want it
-piped to Tank 2's right side the same way Tank 2 is piped to Tank 1.
+`TANKS` array in `app.js`. It'll automatically pipe on from Tank 2's last
+sub-tank -- no extra flag needed.

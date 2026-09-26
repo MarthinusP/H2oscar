@@ -1,16 +1,28 @@
 // API_BASE lives in site-config.js, shared with reset.html.
-// leftOutlet: true draws a mirrored outlet stub on that tank's left side, so
-// a connecting pipe can run from the previous tank's right outlet into it.
+// Each entry in TANKS is one physical sensor group (one ESP32). How many
+// tank graphics it renders is a per-group setting (tank_count, 1-5) set in
+// Settings and fetched from the Worker -- not hardcoded here. Sub-tanks
+// within a group all show identical readings (one shared sensor, plumbed
+// together), labelled with a letter suffix (A, B, C...) when count > 1.
 const TANKS = [
   { id: "tank1", name: "Tank 1" },
-  { id: "tank2", name: "Tank 2", leftOutlet: true },
+  { id: "tank2", name: "Tank 2" },
 ];
 const POLL_INTERVAL_MS = 5000;
 const STALE_THRESHOLD_MS = 15000; // ~3x the firmware's push interval
 const VALVE_BLINK_MS = 10000;
+const TANK_COUNT_MIN = 1;
+const TANK_COUNT_MAX = 5;
+const SUB_TANK_LETTERS = ["A", "B", "C", "D", "E"];
 
-let lastGoodFetchAt = 0;
 let unlockedPassword = null; // kept in memory only, cleared on page reload
+
+function clampTankCount(n) {
+  n = parseInt(n, 10);
+  if (!Number.isInteger(n) || n < TANK_COUNT_MIN) return TANK_COUNT_MIN;
+  if (n > TANK_COUNT_MAX) return TANK_COUNT_MAX;
+  return n;
+}
 
 async function fetchJson(path) {
   const res = await fetch(API_BASE + path);
@@ -35,7 +47,7 @@ async function verifyPassword(password) {
   return { ok: res.ok, status: res.status };
 }
 
-async function saveConfig(tankId, outletMm, overflowMm, capacityL, alias, password) {
+async function saveConfig(tankId, outletMm, overflowMm, capacityL, tankCount, alias, password) {
   const res = await fetch(`${API_BASE}/api/tanks/${tankId}/config`, {
     method: "POST",
     headers: {
@@ -46,6 +58,7 @@ async function saveConfig(tankId, outletMm, overflowMm, capacityL, alias, passwo
       sensor_outlet_mm: outletMm,
       sensor_overflow_mm: overflowMm,
       tank_capacity_l: capacityL,
+      tank_count: tankCount,
       alias,
     }),
   });
@@ -82,12 +95,24 @@ async function requestPasswordReset(email) {
   return res.ok;
 }
 
-// Builds one tank card's DOM and returns a poll() function that refreshes it.
-function renderTank(tank, container) {
+// Builds one tank card's DOM for a single rendered instance -- a group
+// renders more than one of these when its tank_count setting is > 1.
+// Returns an update function the group-level poller calls with shared
+// telemetry (every instance in a group shows the same reading), plus
+// setAlias for the Settings panel to drive live.
+function renderTankCard(instance, container) {
+  const group = instance.group;
+  const uid = instance.uid;
+
+  function labelFor(alias) {
+    const base = alias && alias.trim() ? alias.trim() : group.name;
+    return instance.subLabel ? `${base} ${instance.subLabel}` : base;
+  }
+
   const card = document.createElement("div");
   card.className = "card tank-card";
   card.innerHTML = `
-    <div class="tank-alias-line">${tank.name}</div>
+    <div class="tank-alias-line">${labelFor(instance.groupCfg && instance.groupCfg.alias)}</div>
     <div class="tank-topline">
       <span></span>
       <span class="tank-status-badge offline">Offline</span>
@@ -97,10 +122,10 @@ function renderTank(tank, container) {
     <div class="fw-line">Firmware: <span class="fw-value">--</span></div>
     <svg class="tank-shell" viewBox="0 0 160 230" aria-hidden="true">
       <defs>
-        <clipPath id="clip-${tank.id}">
+        <clipPath id="clip-${uid}">
           <path d="M20,26 Q20,14 80,14 Q140,14 140,26 L140,208 Q140,222 80,222 Q20,222 20,208 Z"/>
         </clipPath>
-        <linearGradient id="body-${tank.id}" x1="0" y1="0" x2="1" y2="0">
+        <linearGradient id="body-${uid}" x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stop-color="#1a2c38"/>
           <stop offset="10%" stop-color="#22394a"/>
           <stop offset="50%" stop-color="#16252f"/>
@@ -111,10 +136,10 @@ function renderTank(tank, container) {
 
       <!-- tank body -->
       <path d="M20,26 Q20,14 80,14 Q140,14 140,26 L140,208 Q140,222 80,222 Q20,222 20,208 Z"
-            fill="url(#body-${tank.id})" stroke="#0a1620" stroke-width="2"/>
+            fill="url(#body-${uid})" stroke="#0a1620" stroke-width="2"/>
 
       <!-- water fill, clipped to the tank silhouette -->
-      <g clip-path="url(#clip-${tank.id})">
+      <g clip-path="url(#clip-${uid})">
         <foreignObject x="20" y="14" width="120" height="208">
           <div xmlns="http://www.w3.org/1999/xhtml" class="tank-water-wrap">
             <div class="tank-water" style="height:0%"></div>
@@ -142,7 +167,7 @@ function renderTank(tank, container) {
       <rect x="138" y="196" width="14" height="8" rx="2" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
       <circle class="outlet-anchor outlet-anchor-right" cx="158" cy="200" r="6" fill="#4d7488" stroke="#0a1620" stroke-width="1.5"/>
 
-      ${tank.leftOutlet ? `
+      ${!instance.isFirstOverall ? `
       <!-- outlet pipe + valve (lower, left -- mirrors the right one, feeds from the previous tank) -->
       <rect x="8" y="196" width="14" height="8" rx="2" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
       <circle class="outlet-anchor outlet-anchor-left" cx="2" cy="200" r="6" fill="#4d7488" stroke="#0a1620" stroke-width="1.5"/>
@@ -169,19 +194,18 @@ function renderTank(tank, container) {
   const aliasEl = card.querySelector(".tank-alias-line");
 
   function setAlias(alias) {
-    aliasEl.textContent = alias && alias.trim() ? alias.trim() : tank.name;
+    aliasEl.textContent = labelFor(alias);
   }
 
-  async function poll() {
-    const data = await fetchTelemetry(tank.id);
+  function updateFromTelemetry(data) {
     if (!data) {
       statusBadge.textContent = "Offline";
       statusBadge.className = "tank-status-badge offline";
       wifiEl.textContent = "--";
-      return false;
+      fwEl.textContent = "--";
+      return;
     }
 
-    lastGoodFetchAt = Date.now();
     const age = Date.now() - data.server_ts;
     const online = age <= STALE_THRESHOLD_MS;
 
@@ -203,29 +227,23 @@ function renderTank(tank, container) {
       : "--";
 
     fwEl.textContent = data.fw_version ? `v${data.fw_version}` : "--";
-
-    return online;
   }
 
-  const aliasLoaded = fetchConfig(tank.id).then((cfg) => setAlias(cfg && cfg.alias));
-
-  return { poll, cardEl: card, setAlias, aliasLoaded };
+  return { instance, cardEl: card, setAlias, updateFromTelemetry };
 }
 
-// Draws the inter-tank pipe(s) + solenoid valve(s) as one absolutely
-// positioned SVG overlaid on top of the tank cards, so the pipe can start
-// and end exactly on each tank's outlet anchor regardless of card layout.
-// Geometry is recomputed on layoutConnectors() (initial render + resize);
-// only the valve's colour changes on the blink interval.
-function buildConnectors(container, tankRenders) {
+// Draws the connecting pipe(s) + solenoid valve(s) between every
+// consecutive pair of rendered tank cards -- including across group
+// boundaries (Tank 1's last sub-tank feeds into Tank 2's first). Geometry
+// is computed in JS from each card's actual rendered outlet-anchor
+// coordinates, recomputed on layoutConnectors() (initial render + resize).
+function buildConnectors(container, cardRenders) {
+  if (cardRenders.length < 2) return null;
+
   const links = [];
-  for (let i = 0; i < tankRenders.length - 1; i++) {
-    const from = tankRenders[i];
-    const to = tankRenders[i + 1];
-    if (!to.tank.leftOutlet) continue;
-    links.push({ from, to });
+  for (let i = 0; i < cardRenders.length - 1; i++) {
+    links.push({ from: cardRenders[i], to: cardRenders[i + 1] });
   }
-  if (!links.length) return null;
 
   const overlay = document.createElement("div");
   overlay.className = "pipe-overlay-wrap";
@@ -390,14 +408,18 @@ function setupForgotPasswordForm() {
   });
 }
 
-function renderTankSettingsForm(tank, container, onSaved) {
+function renderTankSettingsForm(group, container, onSaved) {
   const wrap = document.createElement("div");
   wrap.innerHTML = `
-    <h3>${tank.name}</h3>
+    <h3>${group.name}</h3>
     <form class="tank-settings-form">
       <label class="field">
-        <span>Alias (shown on the dashboard instead of "${tank.name}")</span>
-        <input type="text" class="tank-alias" maxlength="40" placeholder="${tank.name}">
+        <span>Alias (shown on the dashboard instead of "${group.name}")</span>
+        <input type="text" class="tank-alias" maxlength="40" placeholder="${group.name}">
+      </label>
+      <label class="field">
+        <span>Number of tanks (1-5) -- more than one adds sub-tanks A, B, C... all showing this sensor's reading, linked by pipes</span>
+        <input type="number" class="tank-count" min="${TANK_COUNT_MIN}" max="${TANK_COUNT_MAX}" required>
       </label>
       <label class="field">
         <span>Sensor Outlet (mm)</span>
@@ -411,13 +433,14 @@ function renderTankSettingsForm(tank, container, onSaved) {
         <span>Tank Capacity (litres)</span>
         <input type="number" class="capacity-l" min="1" max="1000000" required>
       </label>
-      <button type="submit" class="save-tank-btn">Save ${tank.name} settings</button>
+      <button type="submit" class="save-tank-btn">Save ${group.name} settings</button>
       <div class="status-msg tank-cal-status" role="status"></div>
     </form>
   `;
   container.appendChild(wrap);
 
   const aliasInput = wrap.querySelector(".tank-alias");
+  const countInput = wrap.querySelector(".tank-count");
   const outletInput = wrap.querySelector(".outlet-mm");
   const overflowInput = wrap.querySelector(".overflow-mm");
   const capacityInput = wrap.querySelector(".capacity-l");
@@ -425,12 +448,17 @@ function renderTankSettingsForm(tank, container, onSaved) {
   const saveBtn = wrap.querySelector(".save-tank-btn");
   const form = wrap.querySelector("form");
 
-  fetchConfig(tank.id).then((cfg) => {
+  let renderedCount = TANK_COUNT_MIN;
+  countInput.value = renderedCount;
+
+  fetchConfig(group.id).then((cfg) => {
     if (!cfg) return;
     aliasInput.value = cfg.alias || "";
     outletInput.value = cfg.sensor_outlet_mm;
     overflowInput.value = cfg.sensor_overflow_mm;
     capacityInput.value = cfg.tank_capacity_l;
+    renderedCount = clampTankCount(cfg.tank_count);
+    countInput.value = renderedCount;
   });
 
   form.addEventListener("submit", async (evt) => {
@@ -439,6 +467,7 @@ function renderTankSettingsForm(tank, container, onSaved) {
     statusEl.className = "status-msg";
 
     const alias = aliasInput.value.trim();
+    const tankCount = clampTankCount(countInput.value);
     const outletMm = parseInt(outletInput.value, 10);
     const overflowMm = parseInt(overflowInput.value, 10);
     const capacityL = parseInt(capacityInput.value, 10);
@@ -454,13 +483,19 @@ function renderTankSettingsForm(tank, container, onSaved) {
     }
 
     saveBtn.disabled = true;
-    const result = await saveConfig(tank.id, outletMm, overflowMm, capacityL, alias, unlockedPassword);
+    const result = await saveConfig(group.id, outletMm, overflowMm, capacityL, tankCount, alias, unlockedPassword);
     saveBtn.disabled = false;
 
     if (result.ok) {
-      statusEl.textContent = "Saved. " + tank.name + " will pick this up within a minute.";
-      statusEl.className = "status-msg ok";
-      if (onSaved) onSaved(alias);
+      if (tankCount !== renderedCount) {
+        statusEl.textContent = "Saved. Reloading to rebuild the tank layout...";
+        statusEl.className = "status-msg ok";
+        setTimeout(() => location.reload(), 1200);
+      } else {
+        statusEl.textContent = "Saved. " + group.name + " will pick this up within a minute.";
+        statusEl.className = "status-msg ok";
+        if (onSaved) onSaved(alias);
+      }
     } else if (result.status === 401) {
       statusEl.textContent = "Session expired -- close Settings and unlock again.";
       statusEl.className = "status-msg error";
@@ -522,22 +557,47 @@ function setupChangePasswordForm() {
   });
 }
 
-function main() {
+async function main() {
   const container = document.getElementById("tanks");
-  const tankRenders = TANKS.map((tank) => ({ tank, ...renderTank(tank, container) }));
 
-  const connectors = buildConnectors(container, tankRenders);
+  // Each group's tank_count decides how many cards it renders -- fetch all
+  // of them up front so the whole layout (including inter-tank pipes) can
+  // be built once, correctly, instead of growing/shifting as data trickles in.
+  const groupConfigs = await Promise.all(TANKS.map((group) => fetchConfig(group.id)));
+
+  const instances = [];
+  TANKS.forEach((group, gi) => {
+    const groupCfg = groupConfigs[gi];
+    const count = clampTankCount(groupCfg && groupCfg.tank_count);
+    for (let i = 0; i < count; i++) {
+      instances.push({
+        group,
+        groupCfg,
+        uid: `${group.id}_${i}`,
+        subLabel: count > 1 ? SUB_TANK_LETTERS[i] : null,
+      });
+    }
+  });
+  instances.forEach((inst, idx) => {
+    inst.isFirstOverall = idx === 0;
+  });
+
+  const cardRenders = instances.map((inst) => renderTankCard(inst, container));
+
+  const connectors = buildConnectors(container, cardRenders);
   if (connectors) {
     layoutConnectors(container, connectors);
     window.addEventListener("resize", () => layoutConnectors(container, connectors));
     startValveBlink(connectors);
-    // Aliases load async and can change a card's height (longer/shorter text
-    // than the "Tank N" placeholder), so re-align once they're in too.
-    Promise.all(tankRenders.map((t) => t.aliasLoaded)).then(() => layoutConnectors(container, connectors));
   }
 
   async function pollAll() {
-    await Promise.all(tankRenders.map((t) => t.poll()));
+    await Promise.all(TANKS.map(async (group) => {
+      const data = await fetchTelemetry(group.id);
+      cardRenders
+        .filter((r) => r.instance.group.id === group.id)
+        .forEach((r) => r.updateFromTelemetry(data));
+    }));
     document.getElementById("lastUpdate").textContent = new Date().toLocaleTimeString();
   }
 
@@ -549,11 +609,11 @@ function main() {
   setupForgotPasswordForm();
 
   const settingsList = document.getElementById("tank-settings-list");
-  TANKS.forEach((tank) => {
-    const tankRender = tankRenders.find((t) => t.tank.id === tank.id);
-    renderTankSettingsForm(tank, settingsList, (alias) => {
-      if (!tankRender) return;
-      tankRender.setAlias(alias);
+  TANKS.forEach((group) => {
+    renderTankSettingsForm(group, settingsList, (alias) => {
+      cardRenders
+        .filter((r) => r.instance.group.id === group.id)
+        .forEach((r) => r.setAlias(alias));
       if (connectors) layoutConnectors(container, connectors);
     });
   });
