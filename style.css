@@ -123,8 +123,21 @@ main { max-width: 960px; margin: 0 auto; }
   flex-wrap: wrap;
   justify-content: center;
   align-items: flex-start;
-  gap: 16px;
+  gap: 72px; /* space between groups -- the inter-group valve lives in here */
   margin-bottom: 20px;
+}
+
+/* Sub-tanks of one group (Tank 1's, or Tank 2's) sit inside their own
+   frame, close together -- they're just pipe-coupled, always one level. */
+.tank-group-frame {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px 20px 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(127, 163, 184, 0.04);
 }
 
 /* Absolutely positioned on top of the tank cards so a connecting pipe can

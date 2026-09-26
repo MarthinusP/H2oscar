@@ -254,33 +254,40 @@ function renderTankCard(instance, container) {
   return { instance, cardEl: card, setAlias, setMaxLiters, updateFromTelemetry };
 }
 
-// Draws the connecting pipe(s) + solenoid valve(s) between every
-// consecutive pair of rendered tank cards -- including across group
-// boundaries (Tank 1's last sub-tank feeds into Tank 2's first). Geometry
-// is computed in JS from each card's actual rendered outlet-anchor
+// Draws the connecting pipe(s) between every consecutive pair of rendered
+// tank cards. Within a group (sub-tanks of the same sensor, e.g. Tank 1 A
+// to Tank 1 B) it's a plain pipe only -- they're permanently coupled and
+// always share one level, nothing to valve. Only *between* groups (Tank 1's
+// last sub-tank into Tank 2's first) is there an actual solenoid valve,
+// drawn larger since it's the one meaningful control point. Geometry is
+// computed in JS from each card's actual rendered outlet-anchor
 // coordinates, recomputed on layoutConnectors() (initial render + resize).
 function buildConnectors(container, cardRenders) {
   if (cardRenders.length < 2) return null;
 
   const links = [];
   for (let i = 0; i < cardRenders.length - 1; i++) {
-    links.push({ from: cardRenders[i], to: cardRenders[i + 1] });
+    const from = cardRenders[i];
+    const to = cardRenders[i + 1];
+    links.push({ from, to, isInterGroup: from.instance.group.id !== to.instance.group.id });
   }
 
   const overlay = document.createElement("div");
   overlay.className = "pipe-overlay-wrap";
   overlay.innerHTML = `
     <svg class="pipe-overlay" aria-hidden="true">
-      ${links.map((_, i) => `
+      ${links.map((link, i) => `
         <g class="connector" data-index="${i}">
-          <rect class="connector-pipe" height="8" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
+          <rect class="connector-pipe" height="${link.isInterGroup ? 11 : 8}" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
+          ${link.isInterGroup ? `
           <g class="connector-valve">
-            <rect class="valve-coil" x="-6" y="-24" width="12" height="18" rx="2" fill="#22394a" stroke="#0a1620" stroke-width="1.5"/>
-            <line class="valve-lead" x1="-4" y1="-24" x2="-4" y2="-30" stroke="#0a1620" stroke-width="1.5"/>
-            <line class="valve-lead" x1="4" y1="-24" x2="4" y2="-30" stroke="#0a1620" stroke-width="1.5"/>
-            <rect class="valve-body" x="-8" y="-6" width="16" height="12" rx="2" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
-            <circle class="valve-light" cx="0" cy="-15" r="4" fill="var(--good)"/>
+            <rect class="valve-coil" x="-10" y="-40" width="20" height="30" rx="3" fill="#22394a" stroke="#0a1620" stroke-width="2"/>
+            <line class="valve-lead" x1="-6" y1="-40" x2="-6" y2="-48" stroke="#0a1620" stroke-width="2"/>
+            <line class="valve-lead" x1="6" y1="-40" x2="6" y2="-48" stroke="#0a1620" stroke-width="2"/>
+            <rect class="valve-body" x="-14" y="-10" width="28" height="20" rx="3" fill="#3a5b6e" stroke="#0a1620" stroke-width="2"/>
+            <circle class="valve-light" cx="0" cy="-25" r="6.5" fill="var(--good)"/>
           </g>
+          ` : ""}
         </g>
       `).join("")}
     </svg>
@@ -290,8 +297,8 @@ function buildConnectors(container, cardRenders) {
   return links.map((link, i) => ({
     ...link,
     pipeEl: overlay.querySelector(`.connector[data-index="${i}"] .connector-pipe`),
-    valveEl: overlay.querySelector(`.connector[data-index="${i}"] .connector-valve`),
-    lightEl: overlay.querySelector(`.connector[data-index="${i}"] .valve-light`),
+    valveEl: link.isInterGroup ? overlay.querySelector(`.connector[data-index="${i}"] .connector-valve`) : null,
+    lightEl: link.isInterGroup ? overlay.querySelector(`.connector[data-index="${i}"] .valve-light`) : null,
     svgEl: overlay.querySelector("svg"),
   }));
 }
@@ -319,18 +326,21 @@ function layoutConnectors(container, connectors) {
     const x2 = Math.max(p1.x, p2.x);
 
     c.pipeEl.setAttribute("x", x1);
-    c.pipeEl.setAttribute("y", y - 4);
+    c.pipeEl.setAttribute("y", y - (c.isInterGroup ? 5.5 : 4));
     c.pipeEl.setAttribute("width", x2 - x1);
-    c.valveEl.setAttribute("transform", `translate(${(x1 + x2) / 2}, ${y})`);
+    if (c.valveEl) {
+      c.valveEl.setAttribute("transform", `translate(${(x1 + x2) / 2}, ${y})`);
+    }
   });
 }
 
 function startValveBlink(connectors) {
-  if (!connectors || !connectors.length) return;
+  const withValves = (connectors || []).filter((c) => c.lightEl);
+  if (!withValves.length) return;
   let green = true;
   setInterval(() => {
     green = !green;
-    connectors.forEach((c) => {
+    withValves.forEach((c) => {
       c.lightEl.setAttribute("fill", green ? "var(--good)" : "var(--bad)");
     });
   }, VALVE_BLINK_MS);
@@ -638,7 +648,22 @@ async function main() {
     inst.isFirstOverall = idx === 0;
   });
 
-  const cardRenders = instances.map((inst) => renderTankCard(inst, container));
+  // Each group gets its own bordered frame (a nested flex row with a
+  // tighter gap than the outer row, which now only spaces frames apart from
+  // each other -- sub-tanks within a group sit close together since
+  // they're just pipe-coupled, not valved).
+  const groupFrames = new Map();
+  function frameFor(group) {
+    if (!groupFrames.has(group.id)) {
+      const frame = document.createElement("div");
+      frame.className = "tank-group-frame";
+      container.appendChild(frame);
+      groupFrames.set(group.id, frame);
+    }
+    return groupFrames.get(group.id);
+  }
+
+  const cardRenders = instances.map((inst) => renderTankCard(inst, frameFor(inst.group)));
 
   const connectors = buildConnectors(container, cardRenders);
   if (connectors) {
