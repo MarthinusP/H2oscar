@@ -15,6 +15,21 @@ const TANK_COUNT_MIN = 1;
 const TANK_COUNT_MAX = 5;
 const SUB_TANK_LETTERS = ["A", "B", "C", "D", "E"];
 
+// =====================================================================
+// TEMPORARY DEV-ONLY STUB -- REMOVE ONCE THE REAL SENSORS ARE ONLINE.
+// Sensors aren't wired up yet, so real telemetry never arrives; while
+// that's true, a fake distance reading (mm) is substituted per group so
+// the tank graphics/settings can be developed against something. Once
+// ESP1/ESP2 are actually reporting, delete this block (and the fallback
+// that uses it in pollAll()) -- real telemetry always wins over this
+// when it's present, but leaving the stub in after that just risks
+// masking a real "sensor gone offline" situation with fake data.
+const DEV_FAKE_DISTANCE_MM = {
+  tank1: 1100,
+  tank2: 1500,
+};
+// =====================================================================
+
 let unlockedPassword = null; // kept in memory only, cleared on page reload
 
 function clampTankCount(n) {
@@ -30,6 +45,19 @@ function clampTankCount(n) {
 function computeCapacityL(diameterMm, heightMm) {
   const radiusMm = diameterMm / 2;
   return Math.max(1, Math.round((Math.PI * radiusMm * radiusMm * heightMm) / 1e6));
+}
+
+// Mirrors the firmware's own LevelSensor::levelPercent() -- only used to
+// turn the temporary DEV_FAKE_DISTANCE_MM stub into a plausible percent;
+// real telemetry already carries level_pct computed by the firmware itself.
+function computeLevelPercent(distanceMm, outletMm, overflowMm) {
+  if (!outletMm || !overflowMm || outletMm <= overflowMm) return -1;
+  const usable = outletMm - overflowMm;
+  const fromFull = distanceMm - overflowMm;
+  let pct = 100 * (1 - fromFull / usable);
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  return pct;
 }
 
 async function fetchJson(path) {
@@ -55,7 +83,7 @@ async function verifyPassword(password) {
   return { ok: res.ok, status: res.status };
 }
 
-async function saveConfig(tankId, outletMm, overflowMm, tankCount, diameterMm, heightMm, sensorTank, alias, password) {
+async function saveConfig(tankId, outletMm, overflowMm, tankCount, tankDims, sensorTank, alias, password) {
   const res = await fetch(`${API_BASE}/api/tanks/${tankId}/config`, {
     method: "POST",
     headers: {
@@ -66,8 +94,7 @@ async function saveConfig(tankId, outletMm, overflowMm, tankCount, diameterMm, h
       sensor_outlet_mm: outletMm,
       sensor_overflow_mm: overflowMm,
       tank_count: tankCount,
-      tank_diameter_mm: diameterMm,
-      tank_height_mm: heightMm,
+      tank_dims: tankDims,
       sensor_tank: sensorTank,
       alias,
     }),
@@ -106,10 +133,12 @@ async function requestPasswordReset(email) {
 }
 
 // Builds one tank card's DOM for a single rendered instance -- a group
-// renders more than one of these when its tank_count setting is > 1.
-// Returns an update function the group-level poller calls with shared
-// telemetry (every instance in a group shows the same reading), plus
-// setAlias for the Settings panel to drive live.
+// renders more than one of these when its tank_count setting is > 1. Each
+// instance carries its own subCapacityL (from that sub-tank's own stored
+// diameter/height), separate from the group's summed total. Returns an
+// update function the group-level poller calls with shared telemetry
+// (every instance in a group shows the same % reading), plus setAlias for
+// the Settings panel to drive live.
 function renderTankCard(instance, container) {
   const group = instance.group;
   const uid = instance.uid;
@@ -198,7 +227,7 @@ function renderTankCard(instance, container) {
     </svg>
     <div class="tank-pct"><span class="pct-value">--</span><span class="pct-unit">%</span></div>
     <div class="tank-meta"><span class="volume-value">--</span> L</div>
-    <div class="tank-max-line">Max: <span class="max-value">${(instance.groupCfg && instance.groupCfg.tank_capacity_l) || "--"}</span> L</div>
+    <div class="tank-max-line">Max: <span class="max-value">${instance.subCapacityL || "--"}</span> L</div>
   `;
   container.appendChild(card);
 
@@ -211,11 +240,14 @@ function renderTankCard(instance, container) {
   const aliasEl = card.querySelector(".tank-alias-line");
   const maxEl = card.querySelector(".max-value");
 
+  let subCapacityL = instance.subCapacityL;
+
   function setAlias(alias) {
     aliasEl.textContent = labelFor(alias);
   }
 
   function setMaxLiters(capacityL) {
+    subCapacityL = capacityL;
     maxEl.textContent = capacityL >= 1 ? Math.round(capacityL) : "--";
   }
 
@@ -235,11 +267,12 @@ function renderTankCard(instance, container) {
       const pct = Math.round(data.level_pct);
       waterEl.style.height = pct + "%";
       pctEl.textContent = pct;
+      volEl.textContent = subCapacityL >= 1 ? Math.round((data.level_pct / 100) * subCapacityL) : "n/a";
     } else {
       waterEl.style.height = "0%";
       pctEl.innerHTML = '<span class="na">n/a</span>';
+      volEl.textContent = "n/a";
     }
-    volEl.textContent = data.volume_l >= 0 ? Math.round(data.volume_l) : "n/a";
 
     statusBadge.textContent = online ? "Online" : "Offline";
     statusBadge.className = "tank-status-badge " + (online ? "online" : "offline");
@@ -466,15 +499,8 @@ function renderTankSettingsForm(group, container, onSaved) {
         <span>Sensor Overflow (mm)</span>
         <input type="number" class="overflow-mm" min="20" max="4500" required>
       </label>
-      <p class="muted volume-note">Used only to calculate the litres shown for display -- has no effect on the % reading above.</p>
-      <label class="field">
-        <span>Tank Diameter (mm)</span>
-        <input type="number" class="diameter-mm" min="100" max="10000" required>
-      </label>
-      <label class="field">
-        <span>Tank Height (mm)</span>
-        <input type="number" class="height-mm" min="100" max="10000" required>
-      </label>
+      <p class="muted volume-note">Used only to calculate the litres shown for display -- has no effect on the % reading above. Each linked tank can be a different size.</p>
+      <div class="dims-list"></div>
       <button type="submit" class="save-tank-btn">Save ${group.name} settings</button>
       <div class="status-msg tank-cal-status" role="status"></div>
     </form>
@@ -487,8 +513,7 @@ function renderTankSettingsForm(group, container, onSaved) {
   const sensorTankSelect = wrap.querySelector(".sensor-tank");
   const outletInput = wrap.querySelector(".outlet-mm");
   const overflowInput = wrap.querySelector(".overflow-mm");
-  const diameterInput = wrap.querySelector(".diameter-mm");
-  const heightInput = wrap.querySelector(".height-mm");
+  const dimsList = wrap.querySelector(".dims-list");
   const statusEl = wrap.querySelector(".tank-cal-status");
   const saveBtn = wrap.querySelector(".save-tank-btn");
   const form = wrap.querySelector("form");
@@ -503,9 +528,44 @@ function renderTankSettingsForm(group, container, onSaved) {
     sensorTankSelect.value = options.includes(selected) ? selected : options[0];
   }
 
+  // Rebuilds the diameter/height row list to match `count`, preserving
+  // whatever's already been typed (by position) when just growing/shrinking
+  // the count, or using `existingDims` (from a fetched config) when given.
+  function refreshDimsFields(count, existingDims) {
+    const prevValues = Array.from(dimsList.querySelectorAll(".dims-row")).map((row) => ({
+      diameter: row.querySelector(".diameter-mm").value,
+      height: row.querySelector(".height-mm").value,
+    }));
+    dimsList.innerHTML = "";
+    for (let i = 0; i < count; i++) {
+      const existing = existingDims && existingDims[i];
+      const prev = prevValues[i];
+      const diameterVal = existing ? existing.diameter_mm : (prev ? prev.diameter : "");
+      const heightVal = existing ? existing.height_mm : (prev ? prev.height : "");
+      const row = document.createElement("div");
+      row.className = "dims-row";
+      row.innerHTML = `
+        <p class="dims-row-label">Tank${count > 1 ? " " + SUB_TANK_LETTERS[i] : ""}</p>
+        <label class="field">
+          <span>Diameter (mm)</span>
+          <input type="number" class="diameter-mm" min="100" max="10000" value="${diameterVal}" required>
+        </label>
+        <label class="field">
+          <span>Height (mm)</span>
+          <input type="number" class="height-mm" min="100" max="10000" value="${heightVal}" required>
+        </label>
+      `;
+      dimsList.appendChild(row);
+    }
+  }
+
   refreshSensorTankOptions(renderedCount, "A");
+  refreshDimsFields(renderedCount, null);
+
   countInput.addEventListener("input", () => {
-    refreshSensorTankOptions(clampTankCount(countInput.value), sensorTankSelect.value);
+    const count = clampTankCount(countInput.value);
+    refreshSensorTankOptions(count, sensorTankSelect.value);
+    refreshDimsFields(count, null);
   });
 
   fetchConfig(group.id).then((cfg) => {
@@ -513,11 +573,10 @@ function renderTankSettingsForm(group, container, onSaved) {
     aliasInput.value = cfg.alias || "";
     outletInput.value = cfg.sensor_outlet_mm;
     overflowInput.value = cfg.sensor_overflow_mm;
-    diameterInput.value = cfg.tank_diameter_mm || "";
-    heightInput.value = cfg.tank_height_mm || "";
     renderedCount = clampTankCount(cfg.tank_count);
     countInput.value = renderedCount;
     refreshSensorTankOptions(renderedCount, cfg.sensor_tank || "A");
+    refreshDimsFields(renderedCount, cfg.tank_dims);
   });
 
   form.addEventListener("submit", async (evt) => {
@@ -530,23 +589,27 @@ function renderTankSettingsForm(group, container, onSaved) {
     const sensorTank = sensorTankSelect.value;
     const outletMm = parseInt(outletInput.value, 10);
     const overflowMm = parseInt(overflowInput.value, 10);
-    const diameterMm = parseInt(diameterInput.value, 10);
-    const heightMm = parseInt(heightInput.value, 10);
     if (!Number.isInteger(outletMm) || !Number.isInteger(overflowMm) || outletMm <= overflowMm) {
       statusEl.textContent = "Sensor Outlet must be a bigger number than Sensor Overflow.";
       statusEl.className = "status-msg error";
       return;
     }
-    if (!Number.isInteger(diameterMm) || diameterMm < 100 || !Number.isInteger(heightMm) || heightMm < 100) {
-      statusEl.textContent = "Tank Diameter and Height must be positive numbers (in mm).";
+
+    const tankDims = Array.from(dimsList.querySelectorAll(".dims-row")).map((row) => ({
+      diameter_mm: parseInt(row.querySelector(".diameter-mm").value, 10),
+      height_mm: parseInt(row.querySelector(".height-mm").value, 10),
+    }));
+    const dimsBad = tankDims.some(
+      (d) => !Number.isInteger(d.diameter_mm) || d.diameter_mm < 100 || !Number.isInteger(d.height_mm) || d.height_mm < 100
+    );
+    if (dimsBad) {
+      statusEl.textContent = "Each tank's Diameter and Height must be positive numbers (in mm).";
       statusEl.className = "status-msg error";
       return;
     }
 
     saveBtn.disabled = true;
-    const result = await saveConfig(
-      group.id, outletMm, overflowMm, tankCount, diameterMm, heightMm, sensorTank, alias, unlockedPassword
-    );
+    const result = await saveConfig(group.id, outletMm, overflowMm, tankCount, tankDims, sensorTank, alias, unlockedPassword);
     saveBtn.disabled = false;
 
     if (result.ok) {
@@ -557,7 +620,8 @@ function renderTankSettingsForm(group, container, onSaved) {
       } else {
         statusEl.textContent = "Saved. " + group.name + " will pick this up within a minute.";
         statusEl.className = "status-msg ok";
-        if (onSaved) onSaved(alias, computeCapacityL(diameterMm, heightMm));
+        const subCapacities = tankDims.map((d) => computeCapacityL(d.diameter_mm, d.height_mm));
+        if (onSaved) onSaved(alias, subCapacities);
       }
     } else if (result.status === 401) {
       statusEl.textContent = "Session expired -- close Settings and unlock again.";
@@ -627,20 +691,25 @@ async function main() {
   // of them up front so the whole layout (including inter-tank pipes) can
   // be built once, correctly, instead of growing/shifting as data trickles in.
   const groupConfigs = await Promise.all(TANKS.map((group) => fetchConfig(group.id)));
+  const groupCfgById = new Map(TANKS.map((group, i) => [group.id, groupConfigs[i]]));
 
   const instances = [];
   TANKS.forEach((group, gi) => {
     const groupCfg = groupConfigs[gi];
     const count = clampTankCount(groupCfg && groupCfg.tank_count);
     const sensorTank = (groupCfg && groupCfg.sensor_tank) || "A";
+    const dims = groupCfg && Array.isArray(groupCfg.tank_dims) ? groupCfg.tank_dims : null;
     for (let i = 0; i < count; i++) {
       const subLabel = count > 1 ? SUB_TANK_LETTERS[i] : null;
+      const d = dims && dims[i];
       instances.push({
         group,
         groupCfg,
         uid: `${group.id}_${i}`,
+        indexInGroup: i,
         subLabel,
         hasSensor: count > 1 && subLabel === sensorTank,
+        subCapacityL: d ? computeCapacityL(d.diameter_mm, d.height_mm) : null,
       });
     }
   });
@@ -653,17 +722,43 @@ async function main() {
   // each other -- sub-tanks within a group sit close together since
   // they're just pipe-coupled, not valved).
   const groupFrames = new Map();
-  function frameFor(group) {
+  function cardsRowFor(group) {
     if (!groupFrames.has(group.id)) {
       const frame = document.createElement("div");
       frame.className = "tank-group-frame";
+      const cardsRow = document.createElement("div");
+      cardsRow.className = "tank-group-cards";
+      frame.appendChild(cardsRow);
       container.appendChild(frame);
-      groupFrames.set(group.id, frame);
+      groupFrames.set(group.id, { frame, cardsRow });
     }
-    return groupFrames.get(group.id);
+    return groupFrames.get(group.id).cardsRow;
   }
 
-  const cardRenders = instances.map((inst) => renderTankCard(inst, frameFor(inst.group)));
+  const cardRenders = instances.map((inst) => renderTankCard(inst, cardsRowFor(inst.group)));
+
+  // A summary row per group, below its cards, inside the same frame: the
+  // combined current litres (from the shared % reading) and the combined
+  // max capacity (sum of every sub-tank's own capacity).
+  const groupSummaries = new Map();
+  TANKS.forEach((group, gi) => {
+    const entry = groupFrames.get(group.id);
+    const frame = entry && entry.frame;
+    if (!frame) return;
+    const groupCfg = groupConfigs[gi];
+    const summary = document.createElement("div");
+    summary.className = "group-summary";
+    summary.innerHTML = `
+      <div>Total: <span class="group-total-value">--</span> L</div>
+      <div>Capacity: <span class="group-capacity-value">${(groupCfg && groupCfg.tank_capacity_l) || "--"}</span> L</div>
+    `;
+    frame.appendChild(summary);
+    groupSummaries.set(group.id, {
+      totalEl: summary.querySelector(".group-total-value"),
+      capacityEl: summary.querySelector(".group-capacity-value"),
+      capacityL: (groupCfg && groupCfg.tank_capacity_l) || null,
+    });
+  });
 
   const connectors = buildConnectors(container, cardRenders);
   if (connectors) {
@@ -674,10 +769,36 @@ async function main() {
 
   async function pollAll() {
     await Promise.all(TANKS.map(async (group) => {
-      const data = await fetchTelemetry(group.id);
+      let data = await fetchTelemetry(group.id);
+
+      // TEMPORARY DEV-ONLY FALLBACK -- see DEV_FAKE_DISTANCE_MM above.
+      // Only kicks in when there's genuinely no real telemetry yet.
+      if (!data && DEV_FAKE_DISTANCE_MM[group.id] != null) {
+        const gcfg = groupCfgById.get(group.id);
+        const distanceMm = DEV_FAKE_DISTANCE_MM[group.id];
+        const pct = gcfg ? computeLevelPercent(distanceMm, gcfg.sensor_outlet_mm, gcfg.sensor_overflow_mm) : -1;
+        data = {
+          distance_mm: distanceMm,
+          level_pct: pct,
+          valid: pct >= 0,
+          rssi: null,
+          uptime_s: 0,
+          fw_version: null,
+          server_ts: Date.now(),
+        };
+      }
+
       cardRenders
         .filter((r) => r.instance.group.id === group.id)
         .forEach((r) => r.updateFromTelemetry(data));
+
+      const summary = groupSummaries.get(group.id);
+      if (summary) {
+        summary.totalEl.textContent =
+          data && data.valid && data.level_pct >= 0 && summary.capacityL
+            ? Math.round((data.level_pct / 100) * summary.capacityL)
+            : "--";
+      }
     }));
     document.getElementById("lastUpdate").textContent = new Date().toLocaleTimeString();
   }
@@ -691,13 +812,19 @@ async function main() {
 
   const settingsList = document.getElementById("tank-settings-list");
   TANKS.forEach((group) => {
-    renderTankSettingsForm(group, settingsList, (alias, capacityL) => {
-      cardRenders
-        .filter((r) => r.instance.group.id === group.id)
-        .forEach((r) => {
-          r.setAlias(alias);
-          r.setMaxLiters(capacityL);
-        });
+    renderTankSettingsForm(group, settingsList, (alias, subCapacities) => {
+      const groupCards = cardRenders.filter((r) => r.instance.group.id === group.id);
+      groupCards.forEach((r) => {
+        r.setAlias(alias);
+        r.setMaxLiters(subCapacities[r.instance.indexInGroup]);
+      });
+
+      const summary = groupSummaries.get(group.id);
+      if (summary) {
+        summary.capacityL = subCapacities.reduce((sum, c) => sum + c, 0);
+        summary.capacityEl.textContent = Math.round(summary.capacityL);
+      }
+
       if (connectors) layoutConnectors(container, connectors);
     });
   });

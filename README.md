@@ -15,6 +15,15 @@ ESP32 (Tank 1) --HTTPS POST telemetry--> Cloudflare Worker --KV--> this site
 The firmware side of this lives in the separate `esp32_water_monitor` project
 (`src/cloud_client.h`, `src/calibration.h`).
 
+> **Temporary dev stub -- remove once both ESP32s are online.** `app.js` has a
+> `DEV_FAKE_DISTANCE_MM` block near the top (currently `tank1: 1100`,
+> `tank2: 1500`) that substitutes a fake reading whenever real telemetry is
+> absent, purely so the site has something to render while the sensors
+> aren't wired up. Real telemetry always takes priority when present, but
+> once both ESP32s are actually reporting, **delete that block** (and its
+> use in `pollAll()`) -- otherwise a genuine sensor outage would silently
+> show fake data instead of "Offline".
+
 ## One-time setup
 
 ### 1. Deploy the Cloudflare Worker
@@ -88,16 +97,20 @@ once verified, the password is kept in memory for the rest of that page
 load (not persisted anywhere) and the Settings panel opens with:
 
 - **Alias / Number of tanks / Which tank has the sensor / Sensor Outlet /
-  Sensor Overflow / Tank Diameter / Tank Height** -- saved together via
+  Sensor Overflow / Diameter+Height per tank** -- saved together via
   `POST /api/tanks/:id/config`. Alias is an optional display name (falls
   back to "Tank 1"/"Tank 2"); Number of tanks (`tank_count`, 1-5) controls
   how many sub-tank cards that group renders (see "Sub-tanks" below), and
   when it's more than 1, which sub-tank (A/B/C...) actually houses the
-  sensor (`sensor_tank`) gets a small sensor icon on its lid. Diameter and
-  Height (mm) are a physical tank measurement, separate from Sensor
-  Outlet/Overflow -- the Worker derives litres from them
-  (`tank_capacity_l = pi*(diameter/2)^2*height`) for display only; they
-  never affect the fill-percent calculation.
+  sensor (`sensor_tank`) gets a small sensor icon on its lid.
+  Diameter/Height (mm, one pair *per sub-tank* -- `tank_dims`, an array)
+  are a physical measurement, separate from Sensor Outlet/Overflow -- the
+  Worker derives each sub-tank's litres from its own pair
+  (`pi*(diameter/2)^2*height`) and sums them into `tank_capacity_l` (what
+  the firmware actually uses) for display only; none of this affects the
+  fill-percent calculation. The site shows each sub-tank's own capacity
+  under its card, and the group's combined current/max litres (in purple)
+  below the row of cards.
 - **Change password** -- a new `POST /api/change-password` endpoint, gated
   by the *current* password (sent the same way as a config save) rather
   than an emailed token. Successfully changing it updates the in-memory

@@ -129,15 +129,27 @@ async function handleConfigPost(request, env, tankId) {
   const outletMm = body.sensor_outlet_mm;
   const overflowMm = body.sensor_overflow_mm;
   const tankCount = body.tank_count;
-  const diameterMm = body.tank_diameter_mm;
-  const heightMm = body.tank_height_mm;
   const sensorTank = body.sensor_tank;
+  const tankDims = body.tank_dims;
+
+  const dimsValid =
+    Array.isArray(tankDims) &&
+    Number.isInteger(tankCount) &&
+    tankDims.length === tankCount &&
+    tankDims.every((d) =>
+      d &&
+      Number.isInteger(d.diameter_mm) &&
+      Number.isInteger(d.height_mm) &&
+      d.diameter_mm >= DIAMETER_MIN_MM &&
+      d.diameter_mm <= DIAMETER_MAX_MM &&
+      d.height_mm >= HEIGHT_MIN_MM &&
+      d.height_mm <= HEIGHT_MAX_MM
+    );
+
   if (
     !Number.isInteger(outletMm) ||
     !Number.isInteger(overflowMm) ||
     !Number.isInteger(tankCount) ||
-    !Number.isInteger(diameterMm) ||
-    !Number.isInteger(heightMm) ||
     outletMm < CONFIG_MIN_MM ||
     outletMm > CONFIG_MAX_MM ||
     overflowMm < CONFIG_MIN_MM ||
@@ -145,10 +157,7 @@ async function handleConfigPost(request, env, tankId) {
     outletMm <= overflowMm ||
     tankCount < TANK_COUNT_MIN ||
     tankCount > TANK_COUNT_MAX ||
-    diameterMm < DIAMETER_MIN_MM ||
-    diameterMm > DIAMETER_MAX_MM ||
-    heightMm < HEIGHT_MIN_MM ||
-    heightMm > HEIGHT_MAX_MM ||
+    !dimsValid ||
     typeof sensorTank !== "string" ||
     !SUB_TANK_LETTERS.slice(0, tankCount).includes(sensorTank)
   ) {
@@ -157,18 +166,17 @@ async function handleConfigPost(request, env, tankId) {
 
   const alias = typeof body.alias === "string" ? body.alias.trim().slice(0, ALIAS_MAX_LEN) : "";
 
-  // Volume is derived here (not trusted from the client) from a simple
-  // cylindrical-tank formula -- diameter/height are what the user actually
-  // measures; the firmware only ever needs the resulting litre figure.
-  const radiusMm = diameterMm / 2;
-  const capacityL = Math.max(1, Math.round((Math.PI * radiusMm * radiusMm * heightMm) / 1e6));
+  // Volume per sub-tank is derived here (not trusted from the client) from
+  // a simple cylindrical-tank formula -- diameter/height are what the user
+  // actually measures for each linked tank; the total (what the firmware
+  // needs for its own volume figure) is just their sum.
+  const capacityL = tankDims.reduce((sum, d) => sum + cylinderLitres(d.diameter_mm, d.height_mm), 0);
 
   const record = {
     sensor_outlet_mm: outletMm,
     sensor_overflow_mm: overflowMm,
     tank_count: tankCount,
-    tank_diameter_mm: diameterMm,
-    tank_height_mm: heightMm,
+    tank_dims: tankDims,
     tank_capacity_l: capacityL,
     sensor_tank: sensorTank,
     alias,
@@ -231,6 +239,11 @@ async function handleChangePassword(request, env) {
 
   await env.TELEMETRY_KV.put("auth:dashboard_password", newPassword);
   return jsonResponse({ ok: true });
+}
+
+function cylinderLitres(diameterMm, heightMm) {
+  const radiusMm = diameterMm / 2;
+  return Math.max(1, Math.round((Math.PI * radiusMm * radiusMm * heightMm) / 1e6));
 }
 
 async function isRateLimited(env, key, maxAttempts) {

@@ -10,6 +10,7 @@
   --good: #35c98a;
   --warn: #e7b73b;
   --bad: #e05a5a;
+  --purple: #b98ee8;
 }
 
 * { box-sizing: border-box; }
@@ -93,20 +94,28 @@ body::after {
 .sub { color: var(--muted); font-size: 0.85rem; }
 
 .gear-btn {
-  background: var(--card);
-  border: 1px solid var(--border);
-  color: var(--muted);
-  border-radius: 10px;
-  width: 40px;
-  height: 40px;
+  background: rgba(47, 180, 217, 0.14);
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  border-radius: 14px;
+  width: 56px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  box-shadow: 0 0 0 5px rgba(47, 180, 217, 0.08);
+  transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
   flex: none;
 }
-.gear-btn:hover { color: var(--accent); border-color: var(--accent); transform: rotate(20deg); }
+.gear-btn svg { width: 28px; height: 28px; }
+.gear-btn:hover {
+  color: var(--text);
+  border-color: var(--accent-deep);
+  background: rgba(47, 180, 217, 0.24);
+  box-shadow: 0 0 0 7px rgba(47, 180, 217, 0.12);
+  transform: rotate(20deg);
+}
 
 main { max-width: 960px; margin: 0 auto; }
 
@@ -128,16 +137,31 @@ main { max-width: 960px; margin: 0 auto; }
 }
 
 /* Sub-tanks of one group (Tank 1's, or Tank 2's) sit inside their own
-   frame, close together -- they're just pipe-coupled, always one level. */
+   frame, close together -- they're just pipe-coupled, always one level.
+   The frame stacks the card row above the group's total/capacity summary. */
 .tank-group-frame {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 16px;
+  flex-direction: column;
+  gap: 12px;
   padding: 18px 20px 14px;
   border: 1px solid var(--border);
   border-radius: 18px;
   background: rgba(127, 163, 184, 0.04);
+}
+.tank-group-cards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+}
+.group-summary {
+  display: flex;
+  gap: 20px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--purple);
 }
 
 /* Absolutely positioned on top of the tank cards so a connecting pipe can
@@ -379,6 +403,24 @@ main { max-width: 960px; margin: 0 auto; }
 .field input:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .volume-note { margin: 0 0 12px; }
+
+.dims-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px 12px 2px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.dims-row-label {
+  grid-column: 1 / -1;
+  margin: 0 0 2px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
 
 button#save-btn, button#forgot-btn, button#reset-btn, button#gate-btn, button#password-btn {
   background: var(--accent);
