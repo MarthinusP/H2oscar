@@ -24,6 +24,14 @@ function clampTankCount(n) {
   return n;
 }
 
+// Mirrors the Worker's own derivation, so the UI can update instantly on
+// save without waiting on a re-fetch -- the Worker remains the source of
+// truth for what's actually stored.
+function computeCapacityL(diameterMm, heightMm) {
+  const radiusMm = diameterMm / 2;
+  return Math.max(1, Math.round((Math.PI * radiusMm * radiusMm * heightMm) / 1e6));
+}
+
 async function fetchJson(path) {
   const res = await fetch(API_BASE + path);
   if (!res.ok) return null;
@@ -190,6 +198,7 @@ function renderTankCard(instance, container) {
     </svg>
     <div class="tank-pct"><span class="pct-value">--</span><span class="pct-unit">%</span></div>
     <div class="tank-meta"><span class="volume-value">--</span> L</div>
+    <div class="tank-max-line">Max: <span class="max-value">${(instance.groupCfg && instance.groupCfg.tank_capacity_l) || "--"}</span> L</div>
   `;
   container.appendChild(card);
 
@@ -200,9 +209,14 @@ function renderTankCard(instance, container) {
   const wifiEl = card.querySelector(".wifi-value");
   const fwEl = card.querySelector(".fw-value");
   const aliasEl = card.querySelector(".tank-alias-line");
+  const maxEl = card.querySelector(".max-value");
 
   function setAlias(alias) {
     aliasEl.textContent = labelFor(alias);
+  }
+
+  function setMaxLiters(capacityL) {
+    maxEl.textContent = capacityL >= 1 ? Math.round(capacityL) : "--";
   }
 
   function updateFromTelemetry(data) {
@@ -237,7 +251,7 @@ function renderTankCard(instance, container) {
     fwEl.textContent = data.fw_version ? `v${data.fw_version}` : "--";
   }
 
-  return { instance, cardEl: card, setAlias, updateFromTelemetry };
+  return { instance, cardEl: card, setAlias, setMaxLiters, updateFromTelemetry };
 }
 
 // Draws the connecting pipe(s) + solenoid valve(s) between every
@@ -533,7 +547,7 @@ function renderTankSettingsForm(group, container, onSaved) {
       } else {
         statusEl.textContent = "Saved. " + group.name + " will pick this up within a minute.";
         statusEl.className = "status-msg ok";
-        if (onSaved) onSaved(alias);
+        if (onSaved) onSaved(alias, computeCapacityL(diameterMm, heightMm));
       }
     } else if (result.status === 401) {
       statusEl.textContent = "Session expired -- close Settings and unlock again.";
@@ -652,10 +666,13 @@ async function main() {
 
   const settingsList = document.getElementById("tank-settings-list");
   TANKS.forEach((group) => {
-    renderTankSettingsForm(group, settingsList, (alias) => {
+    renderTankSettingsForm(group, settingsList, (alias, capacityL) => {
       cardRenders
         .filter((r) => r.instance.group.id === group.id)
-        .forEach((r) => r.setAlias(alias));
+        .forEach((r) => {
+          r.setAlias(alias);
+          r.setMaxLiters(capacityL);
+        });
       if (connectors) layoutConnectors(container, connectors);
     });
   });

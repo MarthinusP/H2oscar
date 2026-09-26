@@ -269,6 +269,13 @@ main { max-width: 960px; margin: 0 auto; }
 }
 .tank-meta .volume-value { color: var(--text); font-weight: 600; }
 
+.tank-max-line {
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
 .na { color: var(--muted); }
 
 /* ---------------- Modals (settings gate + panel) ---------------- */
