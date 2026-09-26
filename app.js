@@ -311,7 +311,7 @@ function buildConnectors(container, cardRenders) {
     <svg class="pipe-overlay" aria-hidden="true">
       ${links.map((link, i) => `
         <g class="connector" data-index="${i}">
-          <rect class="connector-pipe" height="${link.isInterGroup ? 11 : 8}" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
+          <rect class="connector-pipe" height="8" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
           ${link.isInterGroup ? `
           <line class="connector-flow" stroke="#8fe0ff" stroke-width="3" stroke-linecap="round" stroke-dasharray="6 10"/>
           <g class="connector-valve">
@@ -343,7 +343,12 @@ function anchorCenter(circleEl, containerRect) {
   return { x: r.left + r.width / 2 - containerRect.left, y: r.top + r.height / 2 - containerRect.top };
 }
 
-function layoutConnectors(container, connectors) {
+// groupFrames (id -> { frame, cardsRow }) is optional -- when given, an
+// inter-group valve is centered on the actual gap between the two group
+// frame boxes rather than on the midpoint of the two nearest cards' anchors,
+// so it sits dead center between the frames even if one frame is wider than
+// the other (different sub-tank counts on each side).
+function layoutConnectors(container, connectors, groupFrames) {
   if (!connectors || !connectors.length) return;
   const containerRect = container.getBoundingClientRect();
   const svg = connectors[0].svgEl;
@@ -361,10 +366,21 @@ function layoutConnectors(container, connectors) {
     const x2 = Math.max(p1.x, p2.x);
 
     c.pipeEl.setAttribute("x", x1);
-    c.pipeEl.setAttribute("y", y - (c.isInterGroup ? 5.5 : 4));
+    c.pipeEl.setAttribute("y", y - 4);
     c.pipeEl.setAttribute("width", x2 - x1);
+
+    let valveX = (x1 + x2) / 2;
+    if (c.isInterGroup && groupFrames) {
+      const fromFrame = groupFrames.get(c.from.instance.group.id);
+      const toFrame = groupFrames.get(c.to.instance.group.id);
+      if (fromFrame && toFrame) {
+        const fromRight = fromFrame.frame.getBoundingClientRect().right - containerRect.left;
+        const toLeft = toFrame.frame.getBoundingClientRect().left - containerRect.left;
+        valveX = (fromRight + toLeft) / 2;
+      }
+    }
     if (c.valveEl) {
-      c.valveEl.setAttribute("transform", `translate(${(x1 + x2) / 2}, ${y})`);
+      c.valveEl.setAttribute("transform", `translate(${valveX}, ${y})`);
     }
     if (c.flowEl) {
       // x1 is always the tank1-ward end, x2 the tank2-ward end (links are
@@ -772,7 +788,7 @@ async function main() {
     const summary = document.createElement("div");
     summary.className = "group-summary";
     summary.innerHTML = `
-      <div>Total: <span class="group-total-value">--</span> L</div>
+      <div>Current: <span class="group-total-value">--</span> L</div>
       <div>Capacity: <span class="group-capacity-value">${(groupCfg && groupCfg.tank_capacity_l) || "--"}</span> L</div>
     `;
     frame.appendChild(summary);
@@ -785,8 +801,8 @@ async function main() {
 
   const connectors = buildConnectors(container, cardRenders);
   if (connectors) {
-    layoutConnectors(container, connectors);
-    window.addEventListener("resize", () => layoutConnectors(container, connectors));
+    layoutConnectors(container, connectors, groupFrames);
+    window.addEventListener("resize", () => layoutConnectors(container, connectors, groupFrames));
     startValveBlink(connectors);
   }
 
@@ -852,7 +868,7 @@ async function main() {
         summary.capacityEl.textContent = Math.round(summary.capacityL);
       }
 
-      if (connectors) layoutConnectors(container, connectors);
+      if (connectors) layoutConnectors(container, connectors, groupFrames);
     });
   });
 

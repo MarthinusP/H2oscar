@@ -15,7 +15,12 @@
 
 * { box-sizing: border-box; }
 
-html { height: 100%; }
+html {
+  height: 100%;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge */
+}
+html::-webkit-scrollbar { display: none; } /* Chrome/Safari */
 
 body {
   min-height: 100%;
@@ -93,8 +98,12 @@ body::after {
 .drop { filter: drop-shadow(0 0 6px rgba(47, 180, 217, 0.5)); }
 .sub { color: var(--muted); font-size: 0.85rem; }
 
+/* A raised, physical-looking button (gradient face + a drop shadow standing
+   in for its "thickness") that flattens down into the surface on hover, as
+   if pressed -- shadow and gradient both shrink and the button shifts down
+   into the space the shadow gave up. */
 .gear-btn {
-  background: rgba(47, 180, 217, 0.14);
+  background: linear-gradient(180deg, rgba(47, 180, 217, 0.32), rgba(47, 180, 217, 0.12));
   border: 2px solid var(--accent);
   color: var(--accent);
   border-radius: 14px;
@@ -104,17 +113,25 @@ body::after {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 0 0 5px rgba(47, 180, 217, 0.08);
-  transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow:
+    0 4px 0 var(--accent-deep),
+    0 7px 12px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transform: translateY(0);
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease,
+    transform 0.12s ease, box-shadow 0.12s ease;
   flex: none;
 }
 .gear-btn svg { width: 28px; height: 28px; }
 .gear-btn:hover {
   color: var(--text);
   border-color: var(--accent-deep);
-  background: rgba(47, 180, 217, 0.24);
-  box-shadow: 0 0 0 7px rgba(47, 180, 217, 0.12);
-  transform: rotate(20deg);
+  background: linear-gradient(180deg, rgba(47, 180, 217, 0.4), rgba(47, 180, 217, 0.16));
+  box-shadow:
+    0 1px 0 var(--accent-deep),
+    0 2px 5px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: translateY(3px);
 }
 
 main { max-width: min(1400px, 96vw); margin: 0 auto; }
@@ -158,6 +175,7 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
 }
 .group-summary {
   display: flex;
+  justify-content: center;
   gap: 20px;
   padding-top: 10px;
   border-top: 1px solid var(--border);

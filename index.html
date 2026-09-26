@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>H2Oscar</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
   <header class="page-header">
@@ -82,6 +82,10 @@
   </div>
 
   <script src="site-config.js"></script>
-  <script src="app.js" defer></script>
+  <script src="app.js?v=2" defer></script>
+  <!-- Bump both ?v= numbers above whenever style.css/app.js change -- GitHub
+       Pages serves them with a 10-minute cache (max-age=600), so without a
+       cache-busting query param returning visitors can keep running stale
+       JS/CSS for up to that long after a deploy. -->
 </body>
 </html>
