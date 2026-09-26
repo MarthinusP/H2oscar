@@ -426,10 +426,15 @@ function computeAndApplyTankScale(container) {
   if (!naturalWidth || !naturalHeight) return;
 
   const topRect = container.getBoundingClientRect();
-  const availableWidth = container.clientWidth;
   const availableHeight = window.innerHeight - topRect.top - 24; // breathing room above the footer
 
-  let scale = Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight);
+  // Scale by available *height* only -- with only 1-2 groups the row was
+  // nowhere near main's max-width, so capping the scale at the width ratio
+  // too (the previous behavior) left the row barely bigger than at scale 1
+  // even though most of the screen below it was empty. Any width overflow
+  // this causes (many groups/sub-tanks on a narrow window) is caught by
+  // .tanks-row's own horizontal scroll, which is the intended release valve.
+  let scale = availableHeight / naturalHeight;
   scale = Math.max(0.6, Math.min(scale, 2.4));
   container.style.setProperty("--tank-scale", scale.toFixed(3));
 }
