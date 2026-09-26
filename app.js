@@ -8,21 +8,6 @@ const POLL_INTERVAL_MS = 5000;
 const STALE_THRESHOLD_MS = 15000; // ~3x the firmware's push interval
 const VALVE_BLINK_MS = 10000;
 
-// =====================================================================
-// TEMPORARY DEV-ONLY STUB -- REMOVE ONCE THE REAL SENSORS ARE ONLINE.
-// Sensors aren't wired up yet, so real telemetry never arrives; while
-// that's true, a fake distance reading (mm) is substituted per tank so
-// the tank graphics/settings can be developed against something. Once
-// ESP1/ESP2 are actually reporting, delete this block (and the fallback
-// that uses it in pollAll()) -- real telemetry always wins over this
-// when it's present, but leaving the stub in after that just risks
-// masking a real "sensor gone offline" situation with fake data.
-const DEV_FAKE_DISTANCE_MM = {
-  tank1: 850,
-  tank2: 1280,
-};
-// =====================================================================
-
 let unlockedPassword = null; // kept in memory only, cleared on page reload
 
 // Mirrors the Worker's own derivation, so the UI can update instantly on
@@ -31,19 +16,6 @@ let unlockedPassword = null; // kept in memory only, cleared on page reload
 function computeCapacityL(diameterMm, heightMm) {
   const radiusMm = diameterMm / 2;
   return Math.max(1, Math.round((Math.PI * radiusMm * radiusMm * heightMm) / 1e6));
-}
-
-// Mirrors the firmware's own LevelSensor::levelPercent() -- only used to
-// turn the temporary DEV_FAKE_DISTANCE_MM stub into a plausible percent;
-// real telemetry already carries level_pct computed by the firmware itself.
-function computeLevelPercent(distanceMm, outletMm, overflowMm) {
-  if (!outletMm || !overflowMm || outletMm <= overflowMm) return -1;
-  const usable = outletMm - overflowMm;
-  const fromFull = distanceMm - overflowMm;
-  let pct = 100 * (1 - fromFull / usable);
-  if (pct < 0) pct = 0;
-  if (pct > 100) pct = 100;
-  return pct;
 }
 
 async function fetchJson(path) {
@@ -642,7 +614,6 @@ async function main() {
   const container = document.getElementById("tanks");
 
   const groupConfigs = await Promise.all(TANKS.map((group) => fetchConfig(group.id)));
-  const groupCfgById = new Map(TANKS.map((group, i) => [group.id, groupConfigs[i]]));
 
   const instances = TANKS.map((group, i) => {
     const groupCfg = groupConfigs[i];
@@ -670,28 +641,7 @@ async function main() {
 
   async function pollAll() {
     await Promise.all(TANKS.map(async (group) => {
-      let data = await fetchTelemetry(group.id);
-      const isStale = data && (Date.now() - data.server_ts) > STALE_THRESHOLD_MS;
-
-      // TEMPORARY DEV-ONLY FALLBACK -- see DEV_FAKE_DISTANCE_MM above.
-      // Kicks in whenever there's no telemetry that's actually fresh right
-      // now -- either none was ever posted, or what's stored is stale (e.g.
-      // a real device posted once during earlier bench testing and hasn't
-      // since) -- not just on a hard absence of any stored data.
-      if ((!data || isStale) && DEV_FAKE_DISTANCE_MM[group.id] != null) {
-        const gcfg = groupCfgById.get(group.id);
-        const distanceMm = DEV_FAKE_DISTANCE_MM[group.id];
-        const pct = gcfg ? computeLevelPercent(distanceMm, gcfg.sensor_outlet_mm, gcfg.sensor_overflow_mm) : -1;
-        data = {
-          distance_mm: distanceMm,
-          level_pct: pct,
-          valid: pct >= 0,
-          rssi: null,
-          uptime_s: 0,
-          fw_version: null,
-          server_ts: Date.now(),
-        };
-      }
+      const data = await fetchTelemetry(group.id);
 
       cardRenders
         .filter((r) => r.instance.group.id === group.id)

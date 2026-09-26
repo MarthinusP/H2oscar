@@ -15,15 +15,6 @@ ESP32 (Tank 1) --HTTPS POST telemetry--> Cloudflare Worker --KV--> this site
 The firmware side of this lives in the separate `esp32_water_monitor` project
 (`src/cloud_client.h`, `src/calibration.h`).
 
-> **Temporary dev stub -- remove once both ESP32s are online.** `app.js` has a
-> `DEV_FAKE_DISTANCE_MM` block near the top (currently `tank1: 1100`,
-> `tank2: 1500`) that substitutes a fake reading whenever real telemetry is
-> absent, purely so the site has something to render while the sensors
-> aren't wired up. Real telemetry always takes priority when present, but
-> once both ESP32s are actually reporting, **delete that block** (and its
-> use in `pollAll()`) -- otherwise a genuine sensor outage would silently
-> show fake data instead of "Offline".
-
 ## One-time setup
 
 ### 1. Deploy the Cloudflare Worker
