@@ -71,6 +71,14 @@ async function changePassword(currentPassword, newPassword) {
   return { ok: res.ok, status: res.status };
 }
 
+// 0% = bright red, 100% = bright green, sweeping through yellow/orange in
+// between -- a standard hue-only traffic-light gradient (saturation/lightness
+// fixed so every step along the way stays equally vivid).
+function levelColor(pct) {
+  const hue = (Math.max(0, Math.min(100, pct)) / 100) * 120;
+  return `hsl(${hue}, 85%, 50%)`;
+}
+
 // Same thresholds as the firmware's own signalQuality() in wifi_provision.h.
 function wifiQualityLabel(rssi) {
   if (typeof rssi !== "number") return "--";
@@ -158,9 +166,11 @@ function renderTankCard(instance, container) {
       <!-- overflow pipe (upper) -->
       <rect x="138" y="44" width="16" height="8" rx="2" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
 
-      <!-- outlet pipe + valve (lower, right) -->
+      ${!instance.isLastOverall ? `
+      <!-- outlet pipe + valve (lower, right) -- only when there's a next tank to connect to -->
       <rect x="138" y="196" width="14" height="8" rx="2" fill="#3a5b6e" stroke="#0a1620" stroke-width="1.5"/>
       <circle class="outlet-anchor outlet-anchor-right" cx="158" cy="200" r="6" fill="#4d7488" stroke="#0a1620" stroke-width="1.5"/>
+      ` : ""}
 
       ${!instance.isFirstOverall ? `
       <!-- outlet pipe + valve (lower, left -- mirrors the right one, feeds from the previous tank) -->
@@ -176,13 +186,14 @@ function renderTankCard(instance, container) {
       <path d="M32,30 Q30,120 32,205" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.06"/>
     </svg>
     <div class="tank-pct"><span class="pct-value">--</span><span class="pct-unit">%</span></div>
-    <div class="tank-meta"><span class="volume-value">--</span> L</div>
-    <div class="tank-max-line">Max: <span class="max-value">${instance.capacityL || "--"}</span> L</div>
+    <div class="tank-meta">Current: <span class="volume-value">--</span> Liters</div>
+    <div class="tank-max-line">Tank Volume: <span class="max-value">${instance.capacityL || "--"}</span> Liters</div>
   `;
   container.appendChild(card);
 
   const waterEl = card.querySelector(".tank-water");
   const pctEl = card.querySelector(".pct-value");
+  const pctUnitEl = card.querySelector(".pct-unit");
   const volEl = card.querySelector(".volume-value");
   const statusBadge = card.querySelector(".tank-status-badge");
   const wifiEl = card.querySelector(".wifi-value");
@@ -215,12 +226,17 @@ function renderTankCard(instance, container) {
 
     if (data.valid && data.level_pct >= 0) {
       const pct = Math.round(data.level_pct);
+      const color = levelColor(pct);
       waterEl.style.height = pct + "%";
       pctEl.textContent = pct;
+      pctEl.style.color = color;
+      pctUnitEl.style.color = color;
       volEl.textContent = capacityL >= 1 ? Math.round((data.level_pct / 100) * capacityL) : "n/a";
     } else {
       waterEl.style.height = "0%";
       pctEl.innerHTML = '<span class="na">n/a</span>';
+      pctEl.style.color = "";
+      pctUnitEl.style.color = "";
       volEl.textContent = "n/a";
     }
 
@@ -254,7 +270,7 @@ function buildConnectors(container, cardRenders) {
     <svg class="pipe-overlay" aria-hidden="true">
       ${links.map((link, i) => `
         <g class="connector" data-index="${i}">
-          <rect class="connector-pipe" height="10" fill="#4d7488" stroke="#0a1620" stroke-width="1.5"/>
+          <rect class="connector-pipe" fill="#4d7488" stroke="#0a1620" stroke-width="1.5"/>
           <line class="connector-flow" stroke="#8fe0ff" stroke-width="3" stroke-linecap="round" stroke-dasharray="6 10"/>
           <g class="connector-valve">
             <rect class="valve-coil" x="-10" y="-40" width="20" height="30" rx="3" fill="#22394a" stroke="#0a1620" stroke-width="2"/>
@@ -306,10 +322,16 @@ function layoutConnectors(container, connectors) {
     const x1 = leftPoint.x - leftPoint.r;
     const x2 = rightPoint.x + rightPoint.r;
     const valveX = (x1 + x2) / 2;
+    // Match the pipe's height (and end-cap rounding) to the anchor circles'
+    // own diameter, so the straight pipe fuses into the round joints on both
+    // ends instead of a thinner rectangle butting into wider circles.
+    const anchorR = (p1.r + p2.r) / 2;
 
     c.pipeEl.setAttribute("x", x1);
-    c.pipeEl.setAttribute("y", y - 5);
+    c.pipeEl.setAttribute("y", y - anchorR);
     c.pipeEl.setAttribute("width", x2 - x1);
+    c.pipeEl.setAttribute("height", anchorR * 2);
+    c.pipeEl.setAttribute("rx", anchorR);
 
     if (c.valveEl) {
       c.valveEl.setAttribute("transform", `translate(${valveX}, ${y})`);
@@ -627,6 +649,7 @@ async function main() {
       groupCfg,
       capacityL: hasDims ? computeCapacityL(groupCfg.diameter_mm, groupCfg.height_mm) : null,
       isFirstOverall: i === 0,
+      isLastOverall: i === TANKS.length - 1,
     };
   });
 

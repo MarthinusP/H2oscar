@@ -248,14 +248,13 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
 .tank-status-badge.offline { color: var(--bad); }
 
 .wifi-line {
-  font-size: 0.75rem;
-  color: var(--muted);
+  font-size: calc(0.9rem * var(--tank-scale, 1));
+  color: var(--purple);
 }
 
 .fw-line {
-  font-size: 0.72rem;
-  color: var(--muted);
-  opacity: 0.8;
+  font-size: calc(0.85rem * var(--tank-scale, 1));
+  color: var(--purple);
   margin-bottom: 10px;
 }
 
@@ -324,8 +323,7 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
 .tank-max-line {
   margin-top: 2px;
   font-size: calc(0.78rem * var(--tank-scale, 1));
-  color: var(--muted);
-  opacity: 0.85;
+  color: var(--text);
 }
 
 .na { color: var(--muted); }
