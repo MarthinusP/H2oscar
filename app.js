@@ -793,10 +793,14 @@ async function main() {
   async function pollAll() {
     await Promise.all(TANKS.map(async (group) => {
       let data = await fetchTelemetry(group.id);
+      const isStale = data && (Date.now() - data.server_ts) > STALE_THRESHOLD_MS;
 
       // TEMPORARY DEV-ONLY FALLBACK -- see DEV_FAKE_DISTANCE_MM above.
-      // Only kicks in when there's genuinely no real telemetry yet.
-      if (!data && DEV_FAKE_DISTANCE_MM[group.id] != null) {
+      // Kicks in whenever there's no telemetry that's actually fresh right
+      // now -- either none was ever posted, or what's stored is stale (e.g.
+      // a real device posted once during earlier bench testing and hasn't
+      // since) -- not just on a hard absence of any stored data.
+      if ((!data || isStale) && DEV_FAKE_DISTANCE_MM[group.id] != null) {
         const gcfg = groupCfgById.get(group.id);
         const distanceMm = DEV_FAKE_DISTANCE_MM[group.id];
         const pct = gcfg ? computeLevelPercent(distanceMm, gcfg.sensor_outlet_mm, gcfg.sensor_overflow_mm) : -1;
