@@ -178,7 +178,7 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
 }
 .tank-group-cards {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap; /* sub-tanks stay side by side too, never stack -- the outer row's horizontal scroll absorbs any overflow */
   align-items: flex-start;
   gap: calc(16px * var(--tank-scale, 1));
 }
