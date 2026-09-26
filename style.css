@@ -232,9 +232,9 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
 }
 
 .tank-alias-line {
-  font-size: calc(1.05rem * var(--tank-scale, 1));
+  font-size: calc(1.3rem * var(--tank-scale, 1));
   font-weight: 600;
-  color: var(--purple);
+  color: var(--accent);
   margin-bottom: 4px;
 }
 
@@ -323,8 +323,9 @@ main { max-width: min(1400px, 96vw); margin: 0 auto; }
 .tank-max-line {
   margin-top: 2px;
   font-size: calc(0.78rem * var(--tank-scale, 1));
-  color: var(--text);
+  color: var(--muted);
 }
+.tank-max-line .max-value { color: var(--text); font-weight: 600; }
 
 .na { color: var(--muted); }
 
