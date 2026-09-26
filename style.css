@@ -17,6 +17,7 @@
 
 html {
   height: 100%;
+  overflow: hidden; /* this page is always sized to fit one viewport -- never actually scroll */
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* old Edge */
 }

@@ -343,7 +343,11 @@ function computeAndApplyTankScale(container) {
   if (!naturalWidth || !naturalHeight) return;
 
   const topRect = container.getBoundingClientRect();
-  const availableHeight = window.innerHeight - topRect.top - 24; // breathing room above the footer
+  // Below the row there's still its own margin-bottom (20px) and the page's
+  // own bottom padding (20px) to fit within the viewport too -- reserving
+  // just those, rather than a smaller guess, is what actually keeps the
+  // page from overflowing by a few pixels and forcing a scrollbar.
+  const availableHeight = window.innerHeight - topRect.top - 40;
 
   // Scale by available *height* only -- any width overflow this causes on a
   // narrow window is caught by .tanks-row's own horizontal scroll.
