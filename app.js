@@ -25,8 +25,8 @@ const SUB_TANK_LETTERS = ["A", "B", "C", "D", "E"];
 // when it's present, but leaving the stub in after that just risks
 // masking a real "sensor gone offline" situation with fake data.
 const DEV_FAKE_DISTANCE_MM = {
-  tank1: 1100,
-  tank2: 1500,
+  tank1: 850,
+  tank2: 1280,
 };
 // =====================================================================
 
@@ -340,7 +340,7 @@ function buildConnectors(container, cardRenders) {
 
 function anchorCenter(circleEl, containerRect) {
   const r = circleEl.getBoundingClientRect();
-  return { x: r.left + r.width / 2 - containerRect.left, y: r.top + r.height / 2 - containerRect.top };
+  return { x: r.left + r.width / 2 - containerRect.left, y: r.top + r.height / 2 - containerRect.top, r: r.width / 2 };
 }
 
 // groupFrames (id -> { frame, cardsRow }) is optional -- when given, an
@@ -362,8 +362,13 @@ function layoutConnectors(container, connectors, groupFrames) {
     const p1 = anchorCenter(rightAnchor, containerRect);
     const p2 = anchorCenter(leftAnchor, containerRect);
     const y = (p1.y + p2.y) / 2;
-    const x1 = Math.min(p1.x, p2.x);
-    const x2 = Math.max(p1.x, p2.x);
+    // Extend past each anchor's own center by its radius, so the drawn pipe
+    // touches the outer edge of both anchor nubs (a seamless join) instead
+    // of stopping halfway through them.
+    const leftPoint = p1.x <= p2.x ? p1 : p2;
+    const rightPoint = p1.x <= p2.x ? p2 : p1;
+    const x1 = leftPoint.x - leftPoint.r;
+    const x2 = rightPoint.x + rightPoint.r;
 
     c.pipeEl.setAttribute("x", x1);
     c.pipeEl.setAttribute("y", y - 4);
